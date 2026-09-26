@@ -1,5 +1,6 @@
 #include "resource_pack.hpp"
 
+#include <climits>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
@@ -11,6 +12,8 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+CMRC_DECLARE(assets);
 
 using namespace std;
 
@@ -105,6 +108,8 @@ namespace Mineclone {
 
     struct ZipSource::Impl {
         void* reader = nullptr;
+        vector<byte> buffer;
+        string current_entry;
     };
 
     ZipSource::ZipSource(const filesystem::path& path) : impl(make_unique<Impl>()) {
@@ -118,6 +123,26 @@ namespace Mineclone {
             mz_zip_reader_delete(&impl->reader);
 
             throw runtime_error("Failed to open ZIP/JAR: " + path.string());
+        }
+    }
+
+    ZipSource::ZipSource(vector<byte> data) : impl(make_unique<Impl>()) {
+        impl->reader = mz_zip_reader_create();
+
+        if (!impl->reader) throw runtime_error("Failed to create ZIP reader");
+
+        if (data.size() > static_cast<size_t>(INT32_MAX)) {
+            throw runtime_error("Embedded ZIP is too large");
+        }
+
+        impl->buffer = std::move(data);
+        const int32_t result = mz_zip_reader_open_buffer(
+            impl->reader, reinterpret_cast<const uint8_t*>(impl->buffer.data()), static_cast<int32_t>(impl->buffer.size()), 0);
+
+        if (result != MZ_OK) {
+            mz_zip_reader_delete(&impl->reader);
+
+            throw runtime_error("Failed to open embedded ZIP");
         }
     }
 
@@ -144,9 +169,11 @@ namespace Mineclone {
 
         const string name(path);
 
-        int32_t result = mz_zip_reader_locate_entry(impl->reader, name.c_str(), 0);
-
-        if (result != MZ_OK) throw runtime_error("Resource does not exist in ZIP: " + name);
+        int32_t result = MZ_OK;
+        if (impl->current_entry != name) {
+            result = mz_zip_reader_locate_entry(impl->reader, name.c_str(), 0);
+            if (result != MZ_OK) throw runtime_error("Resource does not exist in ZIP: " + name);
+        }
 
         mz_zip_file* file_info = nullptr;
 
@@ -176,47 +203,37 @@ namespace Mineclone {
             mz_zip_file* file_info = nullptr;
 
             result = mz_zip_reader_entry_get_info(impl->reader, &file_info);
-
             if (result != MZ_OK || !file_info) break;
 
             if (file_info->filename) {
-                callback(string_view(file_info->filename));
+                impl->current_entry = file_info->filename;
+                callback(impl->current_entry);
+                impl->current_entry.clear();
             }
-
             result = mz_zip_reader_goto_next_entry(impl->reader);
         }
     }
 
     // ============================================================
-    // ResourcePack
+    // Resources
     // ============================================================
 
-    void ResourcePack::load(ResourceSource& source) {
-        resources.clear();
-
+    void Resources::load(ResourceSource& source) {
         source.enumerate([&](string_view path) {
-            // Only Minecraft's assets/ and data/ directories.
-            const bool is_assets = path.starts_with("assets/");
-
-            const bool is_data = path.starts_with("data/");
-
-            if (!is_assets && !is_data) return;
-
-            // Don't load directories.
-            if (path.ends_with('/')) return;
-
-            // Remove assets/ or data/.
             string clean_path;
+            for (const auto& folder : whitelist) {
+                const string prefix = folder + "/";
+                if (path.starts_with(prefix)) {
+                    clean_path = string(path.substr(prefix.size()));
+                    break;
+                }
+            }
 
-            if (is_assets)
-                clean_path = string(path.substr(7));
-            else
-                clean_path = string(path.substr(5));
-
-            if (clean_path.empty()) return;
+            if (clean_path.empty() || path.ends_with('/')) return;
 
             try {
-                resources.emplace(clean_path, load_resource(source, path));
+                // Later sources have higher priority.
+                resources.insert_or_assign(clean_path, load_resource(source, path));
             } catch (const exception&) {
                 // Resource failed to load.
                 // Ignore it for now.
@@ -224,9 +241,37 @@ namespace Mineclone {
         });
     }
 
-    bool ResourcePack::contains(string_view path) const { return resources.contains(string(path)); }
+    void Resources::load(const variant<ZipFromFs, DirFromFs, ZipFromEmbed, DirFromEmbed>& source) {
+        visit(
+            [this](const auto& source) {
+                using Source = decay_t<decltype(source)>;
 
-    const Resource& ResourcePack::get(string_view path) const {
+                if constexpr (is_same_v<Source, ZipFromFs>) {
+                    ZipSource zip(source.path);
+                    load(zip);
+                } else if constexpr (is_same_v<Source, DirFromFs>) {
+                    FilesystemSource directory(source.path);
+                    load(directory);
+                } else if constexpr (is_same_v<Source, ZipFromEmbed>) {
+                    const auto fs = cmrc::assets::get_filesystem();
+                    const auto file = fs.open(source.path);
+                    vector<byte> data(file.size());
+                    if (!data.empty()) memcpy(data.data(), file.begin(), file.size());
+                    ZipSource zip(std::move(data));
+                    load(zip);
+                } else if constexpr (is_same_v<Source, DirFromEmbed>) {
+                    auto path = source.path;
+                    while (!path.empty() && path.back() == '/') path.pop_back();
+                    CMRCSource directory(cmrc::assets::get_filesystem(), path);
+                    load(directory);
+                }
+            },
+            source);
+    }
+
+    bool Resources::contains(string_view path) const { return resources.contains(string(path)); }
+
+    const Resource& Resources::get(string_view path) const {
         auto it = resources.find(string(path));
 
         if (it == resources.end()) throw runtime_error("Resource not found: " + string(path));
@@ -234,7 +279,7 @@ namespace Mineclone {
         return it->second;
     }
 
-    const Resource* ResourcePack::try_get(string_view path) const {
+    const Resource* Resources::try_get(string_view path) const {
         auto it = resources.find(string(path));
 
         if (it == resources.end()) return nullptr;
@@ -242,15 +287,15 @@ namespace Mineclone {
         return &it->second;
     }
 
-    size_t ResourcePack::size() const noexcept { return resources.size(); }
+    size_t Resources::size() const noexcept { return resources.size(); }
 
-    const unordered_map<string, Resource>& ResourcePack::get_resources() const noexcept { return resources; }
+    const unordered_map<string, Resource>& Resources::get_resources() const noexcept { return resources; }
 
     // ============================================================
     // Resource loading
     // ============================================================
 
-    Resource ResourcePack::load_resource(ResourceSource& source, string_view path) {
+    Resource Resources::load_resource(ResourceSource& source, string_view path) {
         auto data = source.read(path);
 
         const auto type = determine_type(path);
@@ -282,7 +327,7 @@ namespace Mineclone {
     // Type detection
     // ============================================================
 
-    ResourceType ResourcePack::determine_type(string_view path) {
+    ResourceType Resources::determine_type(string_view path) {
         const auto dot = path.find_last_of('.');
 
         if (dot == string_view::npos) return ResourceType::Binary;
@@ -305,7 +350,7 @@ namespace Mineclone {
     // Text normalization
     // ============================================================
 
-    string ResourcePack::normalize_text(span<const byte> data) {
+    string Resources::normalize_text(span<const byte> data) {
         const char* input = reinterpret_cast<const char*>(data.data());
 
         string output;
@@ -334,7 +379,7 @@ namespace Mineclone {
     // PNG decoding
     // ============================================================
 
-    Image ResourcePack::decode_png(span<const byte> data) {
+    Image Resources::decode_png(span<const byte> data) {
         if (data.empty()) throw runtime_error("Cannot decode empty PNG");
 
         int width = 0;
@@ -363,12 +408,18 @@ namespace Mineclone {
         return image;
     }
 
-    CMRCSource::CMRCSource(cmrc::embedded_filesystem fs) : fs(std::move(fs)) {}
+    CMRCSource::CMRCSource(cmrc::embedded_filesystem fs, filesystem::path root)
+        : fs(std::move(fs)), root(root.generic_string()) {
+        while (!this->root.empty() && this->root.back() == '/') this->root.pop_back();
+    }
 
-    bool CMRCSource::exists(std::string_view path) const { return fs.exists(std::string(path)); }
+    bool CMRCSource::exists(std::string_view path) const {
+        const auto full_path = root.empty() ? string(path) : root + "/" + string(path);
+        return fs.exists(full_path);
+    }
 
     std::vector<std::byte> CMRCSource::read(std::string_view path) const {
-        const std::string name(path);
+        const std::string name = root.empty() ? string(path) : root + "/" + string(path);
 
         if (!fs.exists(name)) throw std::runtime_error("CMRC resource does not exist: " + name);
 
@@ -393,17 +444,22 @@ namespace Mineclone {
         std::function<void(std::string_view)> walk;
 
         walk = [&](std::string_view directory) {
-            const auto dir = fs.open(std::string(directory));
+            const string relative_directory(directory);
+            const string full_directory = root.empty() || relative_directory.empty()
+                                               ? (root.empty() ? relative_directory : root)
+                                               : root + "/" + relative_directory;
+            const auto dir = fs.open(full_directory);
 
             for (const auto& filename : dir) {
                 std::string path;
 
-                if (directory.empty())
+                if (relative_directory.empty())
                     path = filename;
                 else
-                    path = std::string(directory) + "/" + filename;
+                    path = relative_directory + "/" + filename;
 
-                if (fs.is_directory(path)) {
+                const string full_path = root.empty() ? path : root + "/" + path;
+                if (fs.is_directory(full_path)) {
                     walk(path);
                 } else {
                     callback(path);

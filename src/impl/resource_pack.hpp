@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -87,6 +88,7 @@ namespace Mineclone {
     class ZipSource final : public ResourceSource {
         public:
         explicit ZipSource(const std::filesystem::path& path);
+        explicit ZipSource(std::vector<std::byte> data);
         ~ZipSource() override;
 
         ZipSource(const ZipSource&) = delete;
@@ -107,7 +109,7 @@ namespace Mineclone {
 
     class CMRCSource final : public ResourceSource {
         public:
-        explicit CMRCSource(cmrc::embedded_filesystem fs);
+        explicit CMRCSource(cmrc::embedded_filesystem fs, std::filesystem::path root = {});
 
         [[nodiscard]]
         bool exists(std::string_view path) const override;
@@ -119,17 +121,38 @@ namespace Mineclone {
 
         private:
         cmrc::embedded_filesystem fs;
+        std::string root;
     };
 
     // ------------------------------------------------------------
     // Resource pack
     // ------------------------------------------------------------
 
-    class ResourcePack {
+    class Resources {
         public:
-        ResourcePack() = default;
+        // Resource names are stored without their whitelisted top-level folder.
+        std::vector<std::string> whitelist{"data"};
+
+        struct ZipFromFs {
+            std::filesystem::path path;
+        };
+
+        struct DirFromFs {
+            std::filesystem::path path;
+        };
+
+        struct ZipFromEmbed {
+            std::string path;
+        };
+
+        struct DirFromEmbed {
+            std::string path;
+        };
+
+        Resources() = default;
 
         void load(ResourceSource& source);
+        void load(const std::variant<ZipFromFs, DirFromFs, ZipFromEmbed, DirFromEmbed>& source);
 
         [[nodiscard]]
         bool contains(std::string_view path) const;
@@ -157,5 +180,7 @@ namespace Mineclone {
 
         static Image decode_png(std::span<const std::byte> data);
     };
+
+    using ResourcePack = Resources;
 
 }  // namespace Mineclone
