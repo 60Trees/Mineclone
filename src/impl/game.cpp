@@ -21,7 +21,7 @@ struct Game : Application {
     Renderer& r = get<Renderer>();
     vector<InputHandler*> input_handlers{};
 
-    ResourcePack resource_pack;
+    Resources resources;
 
     Game() { name = "Mineclone"; }
 
@@ -30,16 +30,19 @@ struct Game : Application {
         input_handlers = get_mods<InputHandler>();
 
         {
-            ZipSource zip_source(mc_client_location());
-            resource_pack.load(zip_source);
-            cout << "Minecraft JAR resources: " << resource_pack.size() << '\n';
+            cout << "Loading Jar...\n";
+            resources.whitelist.push_back("assets");
+            resources.whitelist.push_back("data");
+            resources.load(Resources::ZipFromFs{mc_client_location()});
+            cout << "Minecraft JAR resources: " << resources.size() << '\n';
         }
 
-        if (const auto* some_json = resource_pack.try_get("minecraft/models/block/acacia_button.json")) {
+        if (const auto* some_json = resources.try_get("minecraft/models/block/acacia_button.json")) {
             const auto& json = some_json->json();
 
             cout << "some rando json contains " << json.size() << " entries\n";
         }
+        this->done = true; // debug testing the jar
     }
 
     void loop() override {
