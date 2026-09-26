@@ -20,7 +20,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "VCPKG_TARGET_TRIPLET": "x64-mingw-static",
-                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/cmake/mingw-x86_64.cmake"
+                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/.cmake/mingw-x86_64.cmake"
             }
         },
         {

@@ -165,7 +165,7 @@ if(EMSCRIPTEN)
             "-fexceptions"
             "-sASSERTIONS=1"
             "--shell-file"
-            "${CMAKE_SOURCE_DIR}/web/shell.html"
+            "${CMAKE_SOURCE_DIR}/.web/shell.html"
     )
     target_compile_definitions(${PROJECT_NAME} PRIVATE
         GL_VERSION_MAJOR=3
