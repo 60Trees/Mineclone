@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <memory>
+#include <triolib.hpp>
 
 using Identifier = std::string;
 using IdentifierView = std::string_view;
@@ -39,6 +40,10 @@ struct RawRegistryEntry {
     Identifier regid;
 };
 
+/**
+ * @brief A registry entry, which is a resource in a registry.
+ * It is a base class for all registry entries.
+ */
 struct RegistryEntry : RawRegistryEntry {
     friend struct Registry;
     virtual ~RegistryEntry() = default;
@@ -50,6 +55,10 @@ struct RegistryEntry : RawRegistryEntry {
     RegistryUint regindex;
 };
 
+/**
+ * @brief A registry, which is a collection of registry entries.
+ * It is a base class for all registries.
+ */
 struct Registerable {
     virtual ~Registerable() = default;
 
@@ -60,6 +69,11 @@ struct Registerable {
             if (entry->resid == id) return index;
         return RegistryNull;
     }
+
+    /**
+     * @brief Get the next available ID in the registry.
+     * @return The next available ID.
+     */
     inline RegistryUint get_empty_id() const {
         auto retval = entries.size();
         while (entries.contains(retval)) retval++;
@@ -76,3 +90,16 @@ struct Registerable {
 
     Identifier regid;
 };
+
+extern std::map<RawRegistryEntry, RegistryEntry* (*)()> registry_entry_constructors;
+extern std::map<Identifier, std::unique_ptr<Registerable>> raw_registries;
+
+struct RegistryList : triolib::AppModule {
+    std::map<Identifier, std::unique_ptr<Registerable>> registries;
+};
+
+#define REGISTER(classname, resid, regid)                                                                 \
+    ;                                                                                                     \
+    run_before_main {                                                                                     \
+        registry_entry_constructors[{resid, regid}] = []() -> RegistryEntry* { return new classname(); }; \
+    }

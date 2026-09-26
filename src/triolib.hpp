@@ -39,32 +39,58 @@ namespace triolib {
 
     struct Application;
 
-    /// @note When constructing, parent is nullptr!
+    /** @note When constructing, parent is nullptr!
+     *
+     *  There are two independent orderings a mod can influence:
+     *    - The init/quit order: mods init() in this order, and quit() in the
+     *      *reverse* of this order (last to init is first to quit).
+     *    - The loop order: mods loop() in this order.
+     *
+     *  Each ordering has its own before/after/priority hooks so a mod can,
+     *  for example, insist on looping last while not caring at all about
+     *  init/quit order (or vice versa).
+     *
+     *  Rules for the constraints:
+     *    1. A mod cannot claim to go both before AND after the same other mod
+     *       in the same ordering - that is a contradiction and throws.
+     *    2. If two mods mutually disagree (A wants to go before B, B wants to
+     *       go before A - via any combination of before/after calls), the mod
+     *       with the higher get_priority() for that ordering wins. If the
+     *       priorities are equal, the outcome is unspecified (but
+     *      deterministic for a given mod list/order).
+     */
     struct AppModule : BaseClass {
         Application* parent = nullptr;
 
         virtual ~AppModule() = default;
 
-        virtual bool does_go_after(const AppModule& other) const { return false; }
+        // --- Init / quit ordering ---
+        // quit() order is the reverse of the init() order, so "goes before"
+        // here means "inits earlier / quits later".
+        virtual bool does_go_before_init(const AppModule& other) const { return false; }
+        virtual bool does_go_after_init(const AppModule& other) const { return false; }
+        virtual float get_priority_init() const { return 0.0f; }
 
-        virtual bool does_go_before(const AppModule& other) const { return false; }
+        virtual bool does_go_before_loop(const AppModule& other) const { return false; }
+        virtual bool does_go_after_loop(const AppModule& other) const { return false; }
+        virtual float get_priority_loop() const { return 0.0f; }
     };
 
     std::vector<std::unique_ptr<AppModule>> get_app_mods();
 
     struct Application : BaseClass {
         void init() override {
-            rebuild_mod_order();
+            rebuild_mod_orders();
 
-            for (auto* mod : mod_order) mod->init();
+            for (auto* mod : init_order) mod->init();
         }
 
         void loop() override {
-            for (auto* mod : mod_order) mod->loop();
+            for (auto* mod : loop_order) mod->loop();
         }
 
         void quit() override {
-            for (auto* mod : mod_order) mod->quit();
+            for (auto it = init_order.rbegin(); it != init_order.rend(); ++it) (*it)->quit();
         }
 
         std::string name{};
@@ -74,43 +100,109 @@ namespace triolib {
         bool added_all_mods = false;
 
         private:
-        std::vector<AppModule*> mod_order{};
+        std::vector<AppModule*> init_order{};
+        std::vector<AppModule*> loop_order{};
 
-        void rebuild_mod_order() {
-            add_all_mods();
-            mod_order.clear();
-            mod_order.reserve(mods.size());
+        template <typename BeforeFn, typename AfterFn, typename PriorityFn>
+        static std::vector<AppModule*> build_order(
+            const std::vector<AppModule*>& in, BeforeFn does_go_before, AfterFn does_go_after, PriorityFn get_priority) {
+            const std::size_t n = in.size();
 
-            for (auto& mod : mods) mod_order.push_back(mod.get());
+            // self-contradiction check: mod i claims both before and after mod j
+            for (std::size_t i = 0; i < n; ++i) {
+                for (std::size_t j = 0; j < n; ++j) {
+                    if (i == j) continue;
 
-            for (std::size_t i = 1; i < mod_order.size(); ++i) {
-                AppModule* current = mod_order[i];
+                    auto& in_i = *in[i];
+                    auto& in_j = *in[j];
 
-                std::size_t position = i;
-
-                for (std::size_t j = 0; j < i; ++j) {
-                    AppModule* other = mod_order[j];
-
-                    const bool current_after = current->does_go_after(*other);
-
-                    const bool current_before = current->does_go_before(*other);
-
-                    const bool other_after = other->does_go_after(*current);
-
-                    const bool other_before = other->does_go_before(*current);
-
-                    if (current_before || other_after) {
-                        position = j;
-                        break;
+                    if (does_go_before(in_i, in_j) && does_go_after(in_i, in_j)) {
+                        throw std::logic_error("Application module wants to go both before and after the same module: " +
+                                               std::string(typeid(in_i).name()) + " vs " + std::string(typeid(in_j).name()));
                     }
-                    if (current_after || other_before) continue;
-                }
-
-                if (position != i) {
-                    mod_order.erase(mod_order.begin() + i);
-                    mod_order.insert(mod_order.begin() + position, current);
                 }
             }
+
+            std::vector<std::vector<std::size_t>> edges(n);
+            std::vector<std::size_t> in_degree(n, 0);
+
+            for (std::size_t i = 0; i < n; ++i) {
+                for (std::size_t j = i + 1; j < n; ++j) {
+                    auto& in_i = *in[i];
+                    auto& in_j = *in[j];
+
+                    const bool i_before_j = does_go_before(in_i, in_j) || does_go_after(in_j, in_i);
+                    const bool j_before_i = does_go_before(in_j, in_i) || does_go_after(in_i, in_j);
+
+                    if (i_before_j && j_before_i) {
+                        // Mutual conflict - higher priority mod's wish wins.
+                        // Equal priority: unspecified, defaults to i before j.
+                        const float pi = get_priority(in_i);
+                        const float pj = get_priority(in_j);
+
+                        if (pj > pi) {
+                            edges[j].push_back(i);
+                            ++in_degree[i];
+                        } else {
+                            edges[i].push_back(j);
+                            ++in_degree[j];
+                        }
+                    } else if (i_before_j) {
+                        edges[i].push_back(j);
+                        ++in_degree[j];
+                    } else if (j_before_i) {
+                        edges[j].push_back(i);
+                        ++in_degree[i];
+                    }
+                }
+            }
+
+            std::vector<std::size_t> available;
+            for (std::size_t i = 0; i < n; ++i) {
+                if (in_degree[i] == 0) available.push_back(i);
+            }
+
+            std::vector<AppModule*> result;
+            result.reserve(n);
+
+            while (!available.empty()) {
+                std::size_t pick_pos = 0;
+                for (std::size_t k = 1; k < available.size(); ++k) {
+                    if (available[k] < available[pick_pos]) pick_pos = k;
+                }
+                const std::size_t node = available[pick_pos];
+                available.erase(available.begin() + pick_pos);
+
+                result.push_back(in[node]);
+
+                for (std::size_t next : edges[node]) {
+                    if (--in_degree[next] == 0) available.push_back(next);
+                }
+            }
+
+            if (result.size() != n) {
+                throw std::logic_error("Application module ordering has a cycle that priority could not resolve");
+            }
+
+            return result;
+        }
+
+        void rebuild_mod_orders() {
+            add_all_mods();
+
+            std::vector<AppModule*> all;
+            all.reserve(mods.size());
+            for (auto& mod : mods) all.push_back(mod.get());
+
+            init_order = build_order(
+                all, [](const AppModule& a, const AppModule& b) { return a.does_go_before_init(b); },
+                [](const AppModule& a, const AppModule& b) { return a.does_go_after_init(b); },
+                [](const AppModule& a) { return a.get_priority_init(); });
+
+            loop_order = build_order(
+                all, [](const AppModule& a, const AppModule& b) { return a.does_go_before_loop(b); },
+                [](const AppModule& a, const AppModule& b) { return a.does_go_after_loop(b); },
+                [](const AppModule& a) { return a.get_priority_loop(); });
         }
 
         public:
@@ -137,7 +229,7 @@ namespace triolib {
             mod->parent = this;
             mods.emplace_back(std::move(mod));
 
-            rebuild_mod_order();
+            rebuild_mod_orders();
         }
         template <typename T>
         std::vector<T*> get_mods() {
