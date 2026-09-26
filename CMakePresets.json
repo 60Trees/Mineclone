@@ -12,6 +12,17 @@
             }
         },
         {
+            "name": "debug",
+            "displayName": "Debug a native build",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/native",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_TARGET_TRIPLET": "x64-linux"
+            }
+        },
+        {
             "name": "mingw",
             "displayName": "Windows x86_64",
             "generator": "Ninja",
@@ -29,6 +40,7 @@
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/web",
             "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "/usr/lib/emscripten/cmake/Modules/Platform/Emscripten.cmake",
                 "VCPKG_TARGET_TRIPLET": "wasm32-emscripten"
@@ -39,6 +51,10 @@
         {
             "name": "native",
             "configurePreset": "native"
+        },
+        {
+            "name": "debug",
+            "configurePreset": "debug"
         },
         {
             "name": "mingw",

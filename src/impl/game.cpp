@@ -7,7 +7,7 @@
 
 #include <base/renderer.hpp>
 #include <base/input_handler.hpp>
-#include <impl/resource_pack.hpp>
+#include <base/resources.hpp>
 CMRC_DECLARE(assets);
 
 extern "C" const char* mc_client_location();
@@ -19,40 +19,27 @@ using namespace Mineclone;
 
 struct Game : Application {
     Renderer& r = get<Renderer>();
-    vector<InputHandler*> input_handlers{};
 
     Resources resources;
 
     Game() { name = "Mineclone"; }
-
-    void init() override {
-        Application::init();
-        input_handlers = get_mods<InputHandler>();
-
-        {
-            cout << "Loading Jar...\n";
-            resources.whitelist.push_back("assets");
-            resources.whitelist.push_back("data");
-            resources.load(Resources::ZipFromFs{mc_client_location()});
-            cout << "Minecraft JAR resources: " << resources.size() << '\n';
-        }
-
-        if (const auto* some_json = resources.try_get("minecraft/models/block/acacia_button.json")) {
-            const auto& json = some_json->json();
-
-            cout << "some rando json contains " << json.size() << " entries\n";
-        }
-        this->done = true; // debug testing the jar
-    }
-
-    void loop() override {
-        Application::loop();
-
-        for (SDL_Event event; SDL_PollEvent(&event);) {
-            if (event.type == SDL_EVENT_QUIT) done = true;
-            if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) done = true;
-
-            for (auto* mod : input_handlers) mod->digest_event(event);
-        }
-    }
 } REGISTER_APP(Game);
+
+struct RandomShi : AppModule {
+    ResourceHandler* rh;
+    bool has_finished_loading = false;
+    void init() override {
+        rh = &parent->get<ResourceHandler>();
+        assert(rh);
+        rh->whitelist.insert("data");
+        rh->whitelist.insert("assets");
+        rh->resource_origins.push_back({std::string(mc_client_location()), ResourceHandler::ResourceOriginType::ZipFromFs});
+    }
+    void loop() override {
+        if (rh->has_loaded && !has_finished_loading) {
+            has_finished_loading = true;
+            cout << "Loaded " << rh->resources.size() << " resources." << endl;
+        }
+    }
+    void quit() override {}
+} REGISTER_MOD(RandomShi);

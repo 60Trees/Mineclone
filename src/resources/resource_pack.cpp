@@ -408,8 +408,7 @@ namespace Mineclone {
         return image;
     }
 
-    CMRCSource::CMRCSource(cmrc::embedded_filesystem fs, filesystem::path root)
-        : fs(std::move(fs)), root(root.generic_string()) {
+    CMRCSource::CMRCSource(cmrc::embedded_filesystem fs, filesystem::path root) : fs(std::move(fs)), root(root.generic_string()) {
         while (!this->root.empty() && this->root.back() == '/') this->root.pop_back();
     }
 
@@ -445,9 +444,8 @@ namespace Mineclone {
 
         walk = [&](std::string_view directory) {
             const string relative_directory(directory);
-            const string full_directory = root.empty() || relative_directory.empty()
-                                               ? (root.empty() ? relative_directory : root)
-                                               : root + "/" + relative_directory;
+            const string full_directory =
+                root.empty() || relative_directory.empty() ? (root.empty() ? relative_directory : root) : root + "/" + relative_directory;
             const auto dir = fs.open(full_directory);
 
             for (const auto& filename : dir) {
