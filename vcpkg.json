@@ -5,6 +5,9 @@
     "dependencies": [
         "sdl3",
         "glm",
-        "boost-multiprecision"
+        "boost-multiprecision",
+        "minizip-ng",
+        "stb",
+        "nlohmann-json"
     ]
 }

@@ -35,7 +35,24 @@ target_compile_definitions(
         BUILD_TYPE_RELEASE=2
         BUILD_TYPE_MINSIZEREL=3
         PROJECT_NAME="${PROJECT_NAME}"
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
+
+if (EXISTS "${CMAKE_SOURCE_DIR}/.developer.txt")
+    target_compile_definitions(
+        ${PROJECT_NAME}
+        PRIVATE
+            DEVELOPER_BUILD=1
+            MC_JAR_DIR="${CMAKE_SOURCE_DIR}"
+    )
+else()
+    target_compile_definitions(
+        ${PROJECT_NAME}
+        PRIVATE
+            DEVELOPER_BUILD=0
+            MC_JAR_DIR="."
+    )
+endif()
 
 target_compile_definitions(
     ${PROJECT_NAME}
@@ -44,10 +61,11 @@ target_compile_definitions(
         BUILD_TYPE_STR="$<CONFIG>"
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/src/")
-
 find_package(SDL3 CONFIG REQUIRED COMPONENTS SDL3-static)
 find_package(glm CONFIG REQUIRED)
+find_package(minizip-ng CONFIG REQUIRED)
+find_package(Stb REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 FetchContent_Declare(
     glad
@@ -93,6 +111,13 @@ target_link_libraries(
         glad_gl_core
         game_assets
         glm::glm
+        MINIZIP::minizip-ng
+        nlohmann_json::nlohmann_json
+)
+
+target_include_directories(${PROJECT_NAME} PRIVATE
+    "${CMAKE_SOURCE_DIR}/src/"
+    ${Stb_INCLUDE_DIRS}
 )
 
 if(NOT EMSCRIPTEN)

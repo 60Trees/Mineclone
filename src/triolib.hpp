@@ -304,6 +304,24 @@ namespace triolib {
         struct FuncAdd {
             friend void (*operator+(FuncAdd, void (*func)()))() { return func; }
         };
+
+        template <typename F>
+        struct FinallyGuard {
+            F func;
+
+            FinallyGuard(F func) : func(std::move(func)) {}
+            ~FinallyGuard() { func(); }
+
+            FinallyGuard(const FinallyGuard&) = delete;
+            FinallyGuard& operator=(const FinallyGuard&) = delete;
+        };
+
+        struct FinallyAdd {
+            template <typename F>
+            FinallyGuard<F> operator+(F func) const {
+                return FinallyGuard<F>(std::move(func));
+            }
+        };
     }  // namespace detail
 
     std::unique_ptr<Application> create_application();
@@ -339,6 +357,8 @@ namespace triolib {
         /* If appname extends off Application, then register application \
          * else register mod*/                                           \
     }
+
+#define run_on_exit auto _concat(__FINALLY_GUARD, __COUNTER__) = ::triolib::detail::FinallyAdd{} + [&]()
 
 #define tassertmsg(to_check, msg)                                                                                \
     do {                                                                                                         \
