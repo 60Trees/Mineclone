@@ -29,6 +29,10 @@ enum BuildType : unsigned char {
 constexpr static BuildType build_type = (BuildType)BUILD_TYPE;
 
 namespace triolib {
+    /**
+     * @brief The base class for all application-related
+     * modules. It can init, loop and quit.
+     */
     struct BaseClass {
         virtual ~BaseClass() = default;
 
@@ -42,9 +46,9 @@ namespace triolib {
     /** @note When constructing, parent is nullptr!
      *
      *  There are two independent orderings a mod can influence:
-     *    - The init/quit order: mods init() in this order, and quit() in the
+     *    - The init/quit order: mods init in this order, and quit in the
      *      *reverse* of this order (last to init is first to quit).
-     *    - The loop order: mods loop() in this order.
+     *    - The loop order: mods loop in this order.
      *
      *  Each ordering has its own before/after/priority hooks so a mod can,
      *  for example, insist on looping last while not caring at all about
@@ -55,7 +59,7 @@ namespace triolib {
      *       in the same ordering - that is a contradiction and throws.
      *    2. If two mods mutually disagree (A wants to go before B, B wants to
      *       go before A - via any combination of before/after calls), the mod
-     *       with the higher get_priority() for that ordering wins. If the
+     *       with the higher priority for that ordering wins. If the
      *       priorities are equal, the outcome is unspecified (but
      *      deterministic for a given mod list/order).
      */
@@ -64,36 +68,99 @@ namespace triolib {
 
         virtual ~AppModule() = default;
 
-        // --- Init / quit ordering ---
-        // quit() order is the reverse of the init() order, so "goes before"
-        // here means "inits earlier / quits later".
+        /**
+         * Determines the init/quit order relative to @p other.
+         *
+         * @retval true If this module initializes before @p other.
+         * @retval false Ignore
+         */
         virtual bool does_go_before_init(const AppModule& other) const { return false; }
+        /**
+         * Determines the init/quit order relative to @p other.
+         *
+         * @retval true If this module initializes after @p other.
+         * @retval false Ignore
+         */
         virtual bool does_go_after_init(const AppModule& other) const { return false; }
+        /**
+         * Determines the priority of this module for init/quit order. Higher
+         * priority modules get what they want in case of conflicts.
+         *
+         * @returns A float representing the priority of this module. Default is `0.0f`.
+         * @retval NAN If it doesn't want to init/quit
+         */
         virtual float get_priority_init() const { return 0.0f; }
 
+        /**
+         * Determines the looping order relative to @p other.
+         *
+         * @retval true If this module loops before @p other.
+         * @retval false Ignore
+         */
         virtual bool does_go_before_loop(const AppModule& other) const { return false; }
+        /**
+         * Determines the looping order relative to @p other.
+         *
+         * @retval `true` if this module loops after @p other.
+         * @retval `false` to ignore
+         */
         virtual bool does_go_after_loop(const AppModule& other) const { return false; }
+        /**
+         * Determines the priority of this module for looping order. Higher
+         * priority modules get what they want in case of conflicts.
+         *
+         * @returns A float representing the priority of this module. Default is `0.0f`.
+         * @retval NAN If it doesn't want to loop
+         */
         virtual float get_priority_loop() const { return 0.0f; }
     };
 
+    /// @brief Constructs and returns a vector of all registered
+    /// mods
     std::vector<std::unique_ptr<AppModule>> get_app_mods();
 
+    /**
+     * @brief The main application class. It manages the lifecycle of all
+     * registered AppModules, including their initialization, looping, and
+     * quitting.
+     * @note When overriding \ref init(), \ref loop(), or \ref quit(), always call the base class implementation to ensure that all
+     * registered modules are properly managed.
+     */
     struct Application : BaseClass {
+        /**
+         * @brief Initializes the application and all registered modules.
+         * This method is called once at the start of the application.
+         */
         void init() override {
             rebuild_mod_orders();
 
             for (auto* mod : init_order) mod->init();
         }
 
+        /**
+         * @brief The main loop of the application. This method is called
+         * repeatedly until the application is done.
+         */
         void loop() override {
             for (auto* mod : loop_order) mod->loop();
         }
 
+        /**
+         * @brief Quits the application and all registered modules. This
+         * method is called once when the application is done.
+         */
         void quit() override {
             for (auto it = init_order.rbegin(); it != init_order.rend(); ++it) (*it)->quit();
         }
 
+        /// The name of the application. Used for stuff like window titles
         std::string name{};
+
+        /**
+         * @brief Starts off as `false`. If it
+         * gets set to `true`, the application will
+         * stop looping and `quit()` will be called.
+         */
         bool done = false;
 
         std::vector<std::unique_ptr<AppModule>> mods{};
@@ -206,31 +273,11 @@ namespace triolib {
         }
 
         public:
-        template <typename T, typename Factory = std::nullptr_t>
-        void depend(Factory factory = nullptr, bool exact = false) {
-            add_all_mods();
-            static_assert(std::is_base_of_v<AppModule, T>, "T must derive from AppModule");
-
-            for (const auto& _mod : mods) {
-                auto* mod = _mod.get();
-
-                if (exact && typeid(*mod) == typeid(T)) return;
-                if (!exact && dynamic_cast<T*>(mod)) return;
-            }
-
-            std::unique_ptr<T> mod;
-
-            if constexpr (std::is_same_v<Factory, std::nullptr_t>) {
-                mod = std::make_unique<T>();
-            } else {
-                mod = factory();
-            }
-
-            mod->parent = this;
-            mods.emplace_back(std::move(mod));
-
-            rebuild_mod_orders();
-        }
+        /**
+         * @brief Returns a vector of all mods that derive from @p T.
+         * @tparam T The type of mod to return. Must derive from AppModule.
+         * @return A vector of pointers to all mods that derive from @p T.
+         */
         template <typename T>
         std::vector<T*> get_mods() {
             add_all_mods();
@@ -295,8 +342,8 @@ namespace triolib {
             return get<T>(false);
         }
     };
-    namespace detail {
 
+    namespace detail {
         struct RunBeforeMain {
             RunBeforeMain(void (*func)()) { func(); }
         };
@@ -352,12 +399,6 @@ namespace triolib {
 
 #define run_before_main static ::triolib::detail::RunBeforeMain _concat(__RUN_BEFORE_MAIN, __COUNTER__) = ::triolib::detail::FuncAdd{} + []
 
-#define _REGISTER(appname)                                               \
-    run_before_main {                                                    \
-        /* If appname extends off Application, then register application \
-         * else register mod*/                                           \
-    }
-
 #define run_on_exit auto _concat(__FINALLY_GUARD, __COUNTER__) = ::triolib::detail::FinallyAdd{} + [&]()
 
 #define tassertmsg(to_check, msg)                                                                                \
@@ -369,3 +410,4 @@ namespace triolib {
     do {                                                                                   \
         if (!(to_check)) throw ::std::runtime_error("Assert `" #to_check "` has failed."); \
     } while (0)
+

@@ -62,10 +62,10 @@ struct RegistryEntry : RawRegistryEntry {
 struct Registerable {
     virtual ~Registerable() = default;
 
-    std::map<RegistryUint, std::unique_ptr<RegistryEntry>> entries;
+    std::map<RegistryUint, std::unique_ptr<RegistryEntry>> resources;
 
     RegistryUint get_id_of(IdentifierView id) const {
-        for (const auto& [index, entry] : entries)
+        for (const auto& [index, entry] : resources)
             if (entry->resid == id) return index;
         return RegistryNull;
     }
@@ -75,8 +75,8 @@ struct Registerable {
      * @return The next available ID.
      */
     inline RegistryUint get_empty_id() const {
-        auto retval = entries.size();
-        while (entries.contains(retval)) retval++;
+        auto retval = resources.size();
+        while (resources.contains(retval)) retval++;
         if (retval == RegistryNull)
             throw std::runtime_error("Registry " + regid + " is full (" + std::to_string(RegistryNull) + " entries)");
         return retval;
@@ -85,7 +85,7 @@ struct Registerable {
     void add_resource(std::unique_ptr<RegistryEntry> entry) {
         RegistryUint index = get_empty_id();
         entry->regindex = index;
-        entries[index] = std::move(entry);
+        resources[index] = std::move(entry);
     }
 
     Identifier regid;
@@ -94,10 +94,63 @@ struct Registerable {
 extern std::map<RawRegistryEntry, RegistryEntry* (*)()> registry_entry_constructors;
 extern std::map<Identifier, std::unique_ptr<Registerable>> raw_registries;
 
+/**
+ * @brief A collection of registries.
+ * Example of adding a registry:
+ * ```cpp
+ * struct Item : triolib::AppModule, Registerable {
+ *     void init() override {
+ *         parent->get<RegistryList>().registries["minecraft:item"] = 
+ *     }
+ * }
+ */
 struct RegistryList : triolib::AppModule {
-    std::map<Identifier, std::unique_ptr<Registerable>> registries;
+    void init() override { load_all(); }
+    void loop() override {}
+    void quit() override { unload_all(); }
+
+    /// The list or registries (i.e items, blocks, etc)
+    std::map<Identifier, Registerable*> registries;
+
+    /// Adds a non-owned registry to the list of registries.
+    /// Best used for AppModules.
+    ///
+    /// @note The registry must be valid for the lifetime of the RegistryList.
+    virtual void add_registerable(Registerable* reg, Identifier regid) = 0;
+
+    /// Adds an owned registry to the list of registries.
+    virtual void add_registerable(std::unique_ptr<Registerable> reg, Identifier regid) = 0;
+
+    /**
+     * @brief Describes if any resource needs a specific uint
+     * @note This is only considered when loading / reloading.
+     */
+    std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
+
+    bool does_go_after_init(const triolib::AppModule& other) const override { return true; }
+
+    /// @note Should be safe to call multiple times
+    virtual void unload_all() = 0;
+
+    /// @note Not safe to call multiple times
+    virtual void load_all() = 0;
+
+    /// @note Safe to call multiple times
+    inline void reload_all() {
+        unload_all();
+        load_all();
+    }
 };
 
+/**
+ * @brief Registers a resource with a registry.
+ *
+ * @param classname The class of the resource to register. Must extend off `RegistryEntry` and
+ * have a default constructor.
+ *
+ * @note The resource will be constructed every time \ref RegistryList::load_all() or
+ * \ref RegistryList::reload_all() is called.
+ */
 #define REGISTER(classname, resid, regid)                                                                 \
     ;                                                                                                     \
     run_before_main {                                                                                     \

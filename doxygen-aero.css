@@ -1,0 +1,390 @@
+:root {
+    --aero-blue-1: #8eeaff;
+    --aero-blue-2: #29bce8;
+    --aero-blue-3: #087eb8;
+
+    --aero-green-1: #baffc2;
+    --aero-green-2: #48d878;
+    --aero-green-3: #15934d;
+
+    --aero-sky: #e9fbff;
+    --aero-panel: rgba(255, 255, 255, 0.82);
+    --aero-border: #72cbe5;
+
+    --aero-text: #16455a;
+    --aero-muted: #527789;
+
+    --aero-shadow:
+        0 3px 10px rgba(0, 80, 120, 0.22);
+
+    --aero-glow:
+        inset 0 1px rgba(255, 255, 255, 0.95),
+        inset 0 -1px rgba(0, 80, 120, 0.15);
+}
+
+/* ------------------------------------------------------------
+   Page
+   ------------------------------------------------------------ */
+
+html {
+    background:
+        linear-gradient(
+            180deg,
+            #c9f6ff 0%,
+            #effcff 45%,
+            #d9f7e2 100%
+        );
+}
+
+body {
+    background:
+        radial-gradient(
+            circle at 50% -10%,
+            rgba(255,255,255,.95),
+            transparent 45%
+        ),
+        linear-gradient(
+            180deg,
+            #e9fbff 0%,
+            #ffffff 55%,
+            #ecfff1 100%
+        );
+
+    color: var(--aero-text);
+}
+
+/* ------------------------------------------------------------
+   Main header
+   ------------------------------------------------------------ */
+
+#titlearea {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(255,255,255,.92) 0%,
+            rgba(255,255,255,.45) 18%,
+            rgba(94,211,241,.45) 55%,
+            rgba(20,157,205,.85) 100%
+        );
+
+    border-bottom: 1px solid #168bb5;
+
+    box-shadow:
+        inset 0 1px rgba(255,255,255,.95),
+        0 3px 10px rgba(0,80,120,.25);
+}
+
+#projectname {
+    color: #064d70;
+
+    text-shadow:
+        0 1px white,
+        0 2px rgba(255,255,255,.5);
+}
+
+#projectbrief {
+    color: #28677c;
+}
+
+/* ------------------------------------------------------------
+   Navigation tabs
+   ------------------------------------------------------------ */
+
+.tabs {
+    background:
+        linear-gradient(
+            180deg,
+            #72dcf8 0%,
+            #22b5df 48%,
+            #0782b8 100%
+        );
+
+    border-top: 1px solid rgba(255,255,255,.8);
+    border-bottom: 1px solid #066c9a;
+
+    box-shadow:
+        inset 0 1px rgba(255,255,255,.75),
+        0 2px 7px rgba(0,80,120,.25);
+}
+
+.tablist li a {
+    color: white !important;
+
+    text-shadow:
+        0 1px #075b7e;
+
+    border-right: 1px solid rgba(0,70,100,.25);
+}
+
+.tablist li a:hover {
+    background:
+        linear-gradient(
+            180deg,
+            #d8faff 0%,
+            #7fe3fa 45%,
+            #21aeda 100%
+        ) !important;
+
+    color: #075b7e !important;
+
+    text-shadow: 0 1px white;
+
+    box-shadow:
+        inset 0 1px rgba(255,255,255,.95);
+}
+
+.tablist li.current a {
+    background:
+        linear-gradient(
+            180deg,
+            #ffffff 0%,
+            #e7fbff 35%,
+            #a6e8fa 70%,
+            #56c9eb 100%
+        ) !important;
+
+    color: #075b7e !important;
+
+    text-shadow: 0 1px white;
+
+    border-radius: 8px 8px 0 0;
+
+    box-shadow:
+        inset 0 1px white,
+        inset 0 -1px rgba(0,90,130,.25);
+}
+
+/* ------------------------------------------------------------
+   Main content
+   ------------------------------------------------------------ */
+
+.contents {
+    background: rgba(255,255,255,.62);
+}
+
+.contents h1,
+.contents h2,
+.contents h3 {
+    color: #0878a8;
+
+    text-shadow:
+        0 1px white;
+}
+
+/* ------------------------------------------------------------
+   Headings / section bars
+   ------------------------------------------------------------ */
+
+.memtitle,
+.groupheader,
+.directory .headertitle {
+    background:
+        linear-gradient(
+            180deg,
+            #eaffff 0%,
+            #bceefa 45%,
+            #73d1eb 100%
+        ) !important;
+
+    color: #075c7d !important;
+
+    border: 1px solid #69bdd5;
+
+    border-radius: 8px;
+
+    box-shadow:
+        var(--aero-glow),
+        var(--aero-shadow);
+
+    text-shadow:
+        0 1px white;
+}
+
+/* ------------------------------------------------------------
+   Code blocks
+   ------------------------------------------------------------ */
+
+div.fragment {
+    background:
+        linear-gradient(
+            180deg,
+            #f5fdff 0%,
+            #e5f8fd 100%
+        );
+
+    border: 1px solid #8bcfe2;
+
+    border-radius: 8px;
+
+    box-shadow:
+        inset 0 1px white,
+        0 2px 7px rgba(0,90,120,.14);
+}
+
+code {
+    color: #075c7d;
+}
+
+/* ------------------------------------------------------------
+   Member/function boxes
+   ------------------------------------------------------------ */
+
+.memitem {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(255,255,255,.94),
+            rgba(232,249,253,.88)
+        );
+
+    border: 1px solid #91d3e4;
+
+    border-radius: 8px;
+
+    box-shadow:
+        inset 0 1px rgba(255,255,255,.95),
+        0 2px 7px rgba(0,90,120,.13);
+}
+
+.memproto {
+    background:
+        linear-gradient(
+            180deg,
+            #dffaff,
+            #a8e5f4
+        );
+
+    border-bottom: 1px solid #79c6da;
+
+    text-shadow: 0 1px white;
+}
+
+/* ------------------------------------------------------------
+   Links
+   ------------------------------------------------------------ */
+
+a {
+    color: #0086bd;
+    text-decoration: none;
+
+    text-shadow: 0 1px white;
+}
+
+a:hover {
+    color: #00a95c;
+    text-decoration: underline;
+}
+
+/* ------------------------------------------------------------
+   Sidebar
+   ------------------------------------------------------------ */
+
+#side-nav {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(224,250,255,.95),
+            rgba(196,241,249,.90)
+        );
+
+    border-right: 1px solid #72cbe0;
+
+    box-shadow:
+        inset -1px 0 rgba(255,255,255,.8),
+        3px 0 10px rgba(0,80,110,.12);
+}
+
+#nav-tree {
+    background: transparent;
+}
+
+#nav-tree .selected {
+    background:
+        linear-gradient(
+            180deg,
+            #eaffff,
+            #8de0f5
+        ) !important;
+
+    border: 1px solid #65c6e0;
+
+    border-radius: 6px;
+
+    box-shadow:
+        inset 0 1px white;
+}
+
+/* ------------------------------------------------------------
+   Search box
+   ------------------------------------------------------------ */
+
+#MSearchBox {
+    background:
+        linear-gradient(
+            180deg,
+            #ffffff,
+            #dff7fc
+        ) !important;
+
+    border: 1px solid #68bdd6;
+
+    border-radius: 10px;
+
+    box-shadow:
+        inset 0 1px white,
+        0 2px 5px rgba(0,80,120,.18);
+}
+
+/* ------------------------------------------------------------
+   Tables
+   ------------------------------------------------------------ */
+
+table.doxtable {
+    border: 1px solid #79c7db;
+
+    border-radius: 7px;
+
+    overflow: hidden;
+
+    box-shadow:
+        0 2px 7px rgba(0,80,110,.14);
+}
+
+table.doxtable th {
+    background:
+        linear-gradient(
+            180deg,
+            #dffaff,
+            #8ddcf1
+        );
+
+    color: #075c7d;
+
+    text-shadow: 0 1px white;
+}
+
+table.doxtable td {
+    background: rgba(255,255,255,.78);
+}
+
+table.doxtable tr:nth-child(even) td {
+    background: rgba(228,249,253,.75);
+}
+
+/* ------------------------------------------------------------
+   Footer
+   ------------------------------------------------------------ */
+
+#nav-path {
+    background:
+        linear-gradient(
+            180deg,
+            #b8eff9,
+            #58c5df
+        );
+
+    border-top: 1px solid #69bcd3;
+
+    box-shadow:
+        inset 0 1px rgba(255,255,255,.8);
+}

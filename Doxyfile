@@ -1,0 +1,17 @@
+PROJECT_NAME           = "Mineclone"
+OUTPUT_DIRECTORY       = "/home/zac/Code/Mineclone/docs"
+INPUT                  = "/home/zac/Code/Mineclone/src"
+RECURSIVE              = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HTML_EXTRA_STYLESHEET  = "/home/zac/Code/Mineclone/doxygen-aero.css"
+HTML_COLORSTYLE        = LIGHT
+HTML_COLORSTYLE_HUE    = 220
+HTML_COLORSTYLE_SAT    = 100
+HTML_COLORSTYLE_GAMMA  = 80
+DISABLE_INDEX          = NO
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+HTML_DYNAMIC_SECTIONS  = YES
+EXTRACT_ALL            = NO
+HIDE_UNDOC_CLASSES     = YES

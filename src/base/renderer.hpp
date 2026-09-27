@@ -9,6 +9,12 @@
 #include <unordered_set>
 #include <string_view>
 #include <SDL3/SDL.h>
+#include <include/position.hpp>
+
+struct Camera {
+    float pitch, yaw, roll;
+    Position pos;
+};
 
 struct Renderer : triolib::AppModule {
     SDL_Window* window = nullptr;
@@ -16,4 +22,6 @@ struct Renderer : triolib::AppModule {
     std::unordered_set<std::string_view> gl_extensions{};
 
     inline bool has_extension(std::string_view ext) { return gl_extensions.contains(ext); }
+
+    Camera camera;
 };

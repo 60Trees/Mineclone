@@ -3,4 +3,5 @@ build/
 compile_commands.json
 .developer.txt
 *.jar
+.make_doxygen
 
