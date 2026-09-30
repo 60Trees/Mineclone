@@ -14,6 +14,8 @@
 
 CMRC_DECLARE(assets);
 
+extern "C" const char* mc_client_location();
+
 std::string_view load_asset(const std::string& path) {
     static auto fs = cmrc::assets::get_filesystem();
     auto file = fs.open(path);

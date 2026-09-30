@@ -61,4 +61,6 @@ struct World : triolib::AppModule {
     std::map<std::pair<BigInt, BigInt>, Chunk> chunks;
     std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
     inline Chunk& get_chunk(BigInt chunkx, BigInt chunky, BigInt chunkz) { return chunks[{chunkx, chunky}]; }
+    void init() override {}
+    void quit() override {}
 };

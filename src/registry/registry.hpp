@@ -116,16 +116,25 @@ struct RegistryList : triolib::AppModule {
     /// Best used for AppModules.
     ///
     /// @note The registry must be valid for the lifetime of the RegistryList.
-    virtual void add_registerable(Registerable* reg, Identifier regid) = 0;
+    virtual void add_registerable(Registerable* reg, Identifier regid) {
+        if (!reg) throw std::invalid_argument("Cannot add a null registry.");
+        registries[std::move(regid)] = reg;
+    }
 
     /// Adds an owned registry to the list of registries.
-    virtual void add_registerable(std::unique_ptr<Registerable> reg, Identifier regid) = 0;
+    virtual void add_registerable(std::unique_ptr<Registerable> reg, Identifier regid) {
+        if (!reg) throw std::invalid_argument("Cannot add a null registry.");
+        auto* raw = reg.get();
+        owned_registries.push_back(std::move(reg));
+        registries[std::move(regid)] = raw;
+    }
 
     /**
      * @brief Describes if any resource needs a specific uint
      * @note This is only considered when loading / reloading.
      */
     std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
+    std::vector<std::unique_ptr<Registerable>> owned_registries;
 
     bool does_go_after_init(const triolib::AppModule& other) const override { return true; }
 

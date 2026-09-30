@@ -6,19 +6,10 @@
 uniform uint u_time;
 
 out vec4 FragColor;
-
-
 uniform ivec2 u_windowsize;
+uniform sampler2D u_texture;
+in vec2 uv;
 
 void main() {
-    float t = float(u_time) / 1000.0;
-
-    vec2 uv = gl_FragCoord.xy / vec2(u_windowsize);
-
-    FragColor = vec4(
-        0.5 + 0.5 * sin(t + uv.x * 3.0),
-        0.5 + 0.5 * sin(t + 2.094),
-        0.5 + 0.5 * sin(t + 4.189),
-        1.0
-    );
+    FragColor = vec4(texture(u_texture, uv).rgb, 1.0);
 }
