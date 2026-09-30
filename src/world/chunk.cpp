@@ -1,5 +1,7 @@
 #include "world.hpp"
 
+Tile TileNull{};
+
 uint Chunk::get_index(size_t block_index) const noexcept {
     if (bucket == 0) return 0;
 
