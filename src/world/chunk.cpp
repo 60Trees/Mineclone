@@ -65,7 +65,8 @@ void Chunk::resize_palette() noexcept {
 void Chunk::set_blocks(const std::array<Tile, BLOCK_COUNT>& tiles) {
     palette.clear();
     for (const Tile& tile : tiles)
-        if (std::find(palette.begin(), palette.end(), tile) == palette.end()) palette.push_back(tile);
+        if (std::find(palette.begin(), palette.end(), tile) == palette.end())
+            palette.push_back(tile);
 
     resize_palette();
 

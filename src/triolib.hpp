@@ -12,7 +12,7 @@
 #include <vector>
 
 #ifdef __EMSCRIPTEN__
-using uint = unsigned int; // emscripten doesn't have `uint`
+using uint = unsigned int;  // emscripten doesn't have `uint`
 #endif
 
 extern bool before_main;
@@ -45,11 +45,19 @@ namespace triolib {
         Application* parent = nullptr;
         virtual void loop() {}
 
-        virtual bool does_go_before_init(const AppModule&) const { return false; }
-        virtual bool does_go_after_init(const AppModule&) const { return false; }
+        virtual bool does_go_before_init(const AppModule&) const {
+            return false;
+        }
+        virtual bool does_go_after_init(const AppModule&) const {
+            return false;
+        }
         virtual float get_priority_init() const { return 0.0f; }
-        virtual bool does_go_before_loop(const AppModule&) const { return false; }
-        virtual bool does_go_after_loop(const AppModule&) const { return false; }
+        virtual bool does_go_before_loop(const AppModule&) const {
+            return false;
+        }
+        virtual bool does_go_after_loop(const AppModule&) const {
+            return false;
+        }
         virtual float get_priority_loop() const { return 0.0f; }
     };
 
@@ -66,22 +74,37 @@ namespace triolib {
     std::unique_ptr<Application> create_application();
 
     template <typename T>
-    requires std::is_base_of_v<Application, T>
-    void register_application() { register_application([]() -> std::unique_ptr<Application> { return std::make_unique<T>(); }); }
+        requires std::is_base_of_v<Application, T>
+    void register_application() {
+        register_application([]() -> std::unique_ptr<Application> {
+            return std::make_unique<T>();
+        });
+    }
 
     template <typename T>
-    requires std::is_base_of_v<AppModule, T>
-    void register_appmod() { register_appmod([]() -> std::unique_ptr<AppModule> { return std::make_unique<T>(); }); }
+        requires std::is_base_of_v<AppModule, T>
+    void register_appmod() {
+        register_appmod([]() -> std::unique_ptr<AppModule> {
+            return std::make_unique<T>();
+        });
+    }
 
     template <typename T>
-    requires std::is_base_of_v<SubApp, T>
-    void register_subapp() { register_subapp([]() -> std::unique_ptr<SubApp> { return std::make_unique<T>(); }); }
+        requires std::is_base_of_v<SubApp, T>
+    void register_subapp() {
+        register_subapp(
+            []() -> std::unique_ptr<SubApp> { return std::make_unique<T>(); });
+    }
 
     template <typename T, typename Parent>
-    requires std::is_base_of_v<Module, T> && std::is_base_of_v<SubApp, Parent>
+        requires std::is_base_of_v<Module, T> &&
+                 std::is_base_of_v<SubApp, Parent>
     void register_mod() {
-        register_mod([]() -> std::unique_ptr<Module> { return std::make_unique<T>(); },
-                     [](SubApp* candidate) { return dynamic_cast<Parent*>(candidate) != nullptr; });
+        register_mod(
+            []() -> std::unique_ptr<Module> { return std::make_unique<T>(); },
+            [](SubApp* candidate) {
+                return dynamic_cast<Parent*>(candidate) != nullptr;
+            });
     }
     struct SubApp : BaseClass {
         Application* application = nullptr;
@@ -96,7 +119,8 @@ namespace triolib {
             for (auto& mod : mods) mod->loop();
         }
         void quit() override {
-            for (auto it = mods.rbegin(); it != mods.rend(); ++it) (*it)->quit();
+            for (auto it = mods.rbegin(); it != mods.rend(); ++it)
+                (*it)->quit();
         }
 
         void create_all_mods();
@@ -109,18 +133,22 @@ namespace triolib {
         template <typename T>
         T& getmod() {
             if (auto* result = find_mod<T>()) return *result;
-            throw std::logic_error("SubApp module does not exist: " + std::string(typeid(T).name()));
+            throw std::logic_error("SubApp module does not exist: " +
+                                   std::string(typeid(T).name()));
         }
         template <typename T>
         T* find_mod() {
-            static_assert(std::is_base_of_v<Module, T>, "T must derive from Module");
+            static_assert(
+                std::is_base_of_v<Module, T>, "T must derive from Module");
             create_all_mods();
             for (auto& mod : mods)
                 if (auto* result = dynamic_cast<T*>(mod.get())) return result;
             return nullptr;
         }
         template <typename T>
-        T& get() { return getmod<T>(); }
+        T& get() {
+            return getmod<T>();
+        }
     };
 
     struct Application : BaseClass {
@@ -140,40 +168,56 @@ namespace triolib {
         void add_all_mods() { create_all_mods(); }
         void subapps_add_all();
         void add_all_subapps() { subapps_add_all(); }
-        void clear_subapps() { subapps.clear(); added_all_subapps = false; }
+        void clear_subapps() {
+            subapps.clear();
+            added_all_subapps = false;
+        }
 
         template <typename T>
-        bool hasmod() { return find_mod<T>() != nullptr; }
+        bool hasmod() {
+            return find_mod<T>() != nullptr;
+        }
         template <typename T>
         T& getmod() {
             if (auto* result = find_mod<T>()) return *result;
-            throw std::logic_error("Application module does not exist: " + std::string(typeid(T).name()));
+            throw std::logic_error("Application module does not exist: " +
+                                   std::string(typeid(T).name()));
         }
         template <typename T>
         T* find_mod() {
-            static_assert(std::is_base_of_v<AppModule, T>, "T must derive from AppModule");
+            static_assert(std::is_base_of_v<AppModule, T>,
+                "T must derive from AppModule");
             create_all_mods();
             for (auto& mod : mods)
                 if (auto* result = dynamic_cast<T*>(mod.get())) return result;
             return nullptr;
         }
         template <typename T>
-        bool hassubapp() { return find_subapp<T>() != nullptr; }
+        bool hassubapp() {
+            return find_subapp<T>() != nullptr;
+        }
         template <typename T>
-        bool has_subapp() { return hassubapp<T>(); }
+        bool has_subapp() {
+            return hassubapp<T>();
+        }
         template <typename T>
         T& getsubapp() {
             if (auto* result = find_subapp<T>()) return *result;
-            throw std::logic_error("Application subapp does not exist: " + std::string(typeid(T).name()));
+            throw std::logic_error("Application subapp does not exist: " +
+                                   std::string(typeid(T).name()));
         }
         template <typename T>
-        T& get_subapp() { return getsubapp<T>(); }
+        T& get_subapp() {
+            return getsubapp<T>();
+        }
         template <typename T>
         T* find_subapp() {
-            static_assert(std::is_base_of_v<SubApp, T>, "T must derive from SubApp");
+            static_assert(
+                std::is_base_of_v<SubApp, T>, "T must derive from SubApp");
             subapps_add_all();
             for (auto& subapp : subapps)
-                if (auto* result = dynamic_cast<T*>(subapp.get())) return result;
+                if (auto* result = dynamic_cast<T*>(subapp.get()))
+                    return result;
             return nullptr;
         }
         template <typename T>
@@ -192,8 +236,10 @@ namespace triolib {
             if (exact) {
                 create_all_mods();
                 for (auto& mod : mods)
-                    if (typeid(*mod) == typeid(T)) return *static_cast<T*>(mod.get());
-                throw std::logic_error("Application module does not exist: " + std::string(typeid(T).name()));
+                    if (typeid(*mod) == typeid(T))
+                        return *static_cast<T*>(mod.get());
+                throw std::logic_error("Application module does not exist: " +
+                                       std::string(typeid(T).name()));
             }
             return getmod<T>();
         }
@@ -202,11 +248,14 @@ namespace triolib {
             create_all_mods();
             std::vector<T*> result;
             for (auto& mod : mods)
-                if (auto* value = dynamic_cast<T*>(mod.get())) result.push_back(value);
+                if (auto* value = dynamic_cast<T*>(mod.get()))
+                    result.push_back(value);
             return result;
         }
         template <typename T>
-        T& operator()() { return getmod<T>(); }
+        T& operator()() {
+            return getmod<T>();
+        }
     };
 
     namespace detail {
@@ -216,19 +265,40 @@ namespace triolib {
         struct FuncAdd {
             friend void (*operator+(FuncAdd, void (*func)()))() { return func; }
         };
-    }
+    }  // namespace detail
 }  // namespace triolib
 
 #define __concat(x, y) x##y
 #define _concat(x, y) __concat(x, y)
-#define run_before_main static ::triolib::detail::RunBeforeMain _concat(__RUN_BEFORE_MAIN, __COUNTER__) = ::triolib::detail::FuncAdd{} + []
-#define REGISTER_APP(classname) ; run_before_main { ::triolib::register_application<classname>(); }
-#define REGISTER_APPMOD(classname) ; run_before_main { ::triolib::register_appmod<classname>(); }
-#define REGISTER_SUBAPP(classname) ; run_before_main { ::triolib::register_subapp<classname>(); }
+#define run_before_main                              \
+    static ::triolib::detail::RunBeforeMain _concat( \
+        __RUN_BEFORE_MAIN, __COUNTER__) = ::triolib::detail::FuncAdd{} + []
+#define REGISTER_APP(classname) \
+    ;                           \
+    run_before_main { ::triolib::register_application<classname>(); }
+#define REGISTER_APPMOD(classname) \
+    ;                              \
+    run_before_main { ::triolib::register_appmod<classname>(); }
+#define REGISTER_SUBAPP(classname) \
+    ;                              \
+    run_before_main { ::triolib::register_subapp<classname>(); }
 #define TRIOLIB_REGISTER_MOD_1(classname) REGISTER_APPMOD(classname)
-#define TRIOLIB_REGISTER_MOD_2(classname, parent) ; run_before_main { ::triolib::register_mod<classname, parent>(); }
+#define TRIOLIB_REGISTER_MOD_2(classname, parent) \
+    ;                                             \
+    run_before_main { ::triolib::register_mod<classname, parent>(); }
 #define TRIOLIB_REGISTER_MOD_SELECT(_1, _2, NAME, ...) NAME
-#define REGISTER_MOD(...) TRIOLIB_REGISTER_MOD_SELECT(__VA_ARGS__, TRIOLIB_REGISTER_MOD_2, TRIOLIB_REGISTER_MOD_1)(__VA_ARGS__)
+#define REGISTER_MOD(...)                                            \
+    TRIOLIB_REGISTER_MOD_SELECT(__VA_ARGS__, TRIOLIB_REGISTER_MOD_2, \
+        TRIOLIB_REGISTER_MOD_1)(__VA_ARGS__)
 
-#define tassertmsg(to_check, msg) do { if (!(to_check)) throw std::runtime_error("Assert `" #to_check "` has failed: " + std::string(msg)); } while (0)
-#define tassert(to_check) do { if (!(to_check)) throw std::runtime_error("Assert `" #to_check "` has failed."); } while (0)
+#define tassertmsg(to_check, msg)                                          \
+    do {                                                                   \
+        if (!(to_check))                                                   \
+            throw std::runtime_error(                                      \
+                "Assert `" #to_check "` has failed: " + std::string(msg)); \
+    } while (0)
+#define tassert(to_check)                                                   \
+    do {                                                                    \
+        if (!(to_check))                                                    \
+            throw std::runtime_error("Assert `" #to_check "` has failed."); \
+    } while (0)

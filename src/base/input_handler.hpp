@@ -7,8 +7,8 @@
 #include <triolib.hpp>
 
 struct InputHandler : triolib::AppModule {
-  virtual void digest_event(const SDL_Event &) = 0;
-  void init() override {}
-  void loop() override {}
-  void quit() override {}
+    virtual void digest_event(const SDL_Event&) = 0;
+    void init() override {}
+    void loop() override {}
+    void quit() override {}
 };

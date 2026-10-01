@@ -1,0 +1,19 @@
+# 1.2
+# 60Trees_'s formatting style (you better follow it, this is the superior style no questions asked)
+Language: Cpp
+BasedOnStyle: Google
+
+IndentPPDirectives: AfterHash
+IndentWidth: 4
+AccessModifierOffset: 0
+AlignAfterOpenBracket: false
+RemoveEmptyLinesInUnwrappedLines: true
+NamespaceIndentation: All
+IndentCaseLabels: true
+BreakBeforeBraces: Attach
+AlignArrayOfStructures: None
+PointerAlignment: Left
+ReferenceAlignment: Left
+ColumnLimit: 80
+
+SortIncludes: false

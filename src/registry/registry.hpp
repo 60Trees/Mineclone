@@ -7,9 +7,11 @@
  * ## Names
  * - ID / Identifier: a namespace-path pair, e.g. `minecraft:stone`
  * - Reg / Registry: a collection of IDs, e.g. items or blocks
- * - RegEntry / RegistryEntry / Res / Resource: an entry in a registry, e.g. stone or oak log
+ * - RegEntry / RegistryEntry / Res / Resource: an entry in a registry, e.g.
+ * stone or oak log
  *
- * These names will be mixed in the code, e.g RegID = the ID of a registry, ResID = the ID of a resource, etc.
+ * These names will be mixed in the code, e.g RegID = the ID of a registry,
+ * ResID = the ID of a resource, etc.
  */
 #pragma once
 
@@ -78,7 +80,9 @@ struct Registerable {
         auto retval = resources.size();
         while (resources.contains(retval)) retval++;
         if (retval == RegistryNull)
-            throw std::runtime_error("Registry " + regid + " is full (" + std::to_string(RegistryNull) + " entries)");
+            throw std::runtime_error("Registry " + regid + " is full (" +
+                                     std::to_string(RegistryNull) +
+                                     " entries)");
         return retval;
     }
 
@@ -91,7 +95,8 @@ struct Registerable {
     Identifier regid;
 };
 
-extern std::map<RawRegistryEntry, RegistryEntry* (*)()> registry_entry_constructors;
+extern std::map<RawRegistryEntry, RegistryEntry* (*)()>
+    registry_entry_constructors;
 extern std::map<Identifier, std::unique_ptr<Registerable>> raw_registries;
 
 /**
@@ -100,7 +105,7 @@ extern std::map<Identifier, std::unique_ptr<Registerable>> raw_registries;
  * ```cpp
  * struct Item : triolib::AppModule, Registerable {
  *     void init() override {
- *         parent->get<RegistryList>().registries["minecraft:item"] = 
+ *         parent->get<RegistryList>().registries["minecraft:item"] =
  *     }
  * }
  */
@@ -122,7 +127,8 @@ struct RegistryList : triolib::AppModule {
     }
 
     /// Adds an owned registry to the list of registries.
-    virtual void add_registerable(std::unique_ptr<Registerable> reg, Identifier regid) {
+    virtual void add_registerable(
+        std::unique_ptr<Registerable> reg, Identifier regid) {
         if (!reg) throw std::invalid_argument("Cannot add a null registry.");
         auto* raw = reg.get();
         owned_registries.push_back(std::move(reg));
@@ -136,7 +142,9 @@ struct RegistryList : triolib::AppModule {
     std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
     std::vector<std::unique_ptr<Registerable>> owned_registries;
 
-    bool does_go_after_init(const triolib::AppModule& other) const override { return true; }
+    bool does_go_after_init(const triolib::AppModule& other) const override {
+        return true;
+    }
 
     /// @note Should be safe to call multiple times
     virtual void unload_all() = 0;
@@ -154,14 +162,17 @@ struct RegistryList : triolib::AppModule {
 /**
  * @brief Registers a resource with a registry.
  *
- * @param classname The class of the resource to register. Must extend off `RegistryEntry` and
- * have a default constructor.
+ * @param classname The class of the resource to register. Must extend off
+ * `RegistryEntry` and have a default constructor.
  *
- * @note The resource will be constructed every time \ref RegistryList::load_all() or
+ * @note The resource will be constructed every time \ref
+ * RegistryList::load_all() or
  * \ref RegistryList::reload_all() is called.
  */
-#define REGISTER(classname, resid, regid)                                                                 \
-    ;                                                                                                     \
-    run_before_main {                                                                                     \
-        registry_entry_constructors[{resid, regid}] = []() -> RegistryEntry* { return new classname(); }; \
+#define REGISTER(classname, resid, regid)                                      \
+    ;                                                                          \
+    run_before_main {                                                          \
+        registry_entry_constructors[{resid, regid}] = []() -> RegistryEntry* { \
+            return new classname();                                            \
+        };                                                                     \
     }

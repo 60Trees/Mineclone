@@ -8,20 +8,20 @@
 #include <string_view>
 
 struct Camera {
-  float pitch, yaw, roll;
-  Position pos;
+    float pitch, yaw, roll;
+    Position pos;
 };
 
 struct Window : triolib::SubApp {
-  virtual SDL_Window *sdl_window() const = 0;
-  virtual glm::vec<2, int> window_size() const = 0;
-  virtual void set_window_size(glm::vec<2, int> size) = 0;
-  virtual bool has_extension(std::string_view ext) const = 0;
+    virtual SDL_Window* sdl_window() const = 0;
+    virtual glm::vec<2, int> window_size() const = 0;
+    virtual void set_window_size(glm::vec<2, int> size) = 0;
+    virtual bool has_extension(std::string_view ext) const = 0;
 };
 
 struct Renderer : triolib::Module {
-  Camera camera;
+    Camera camera;
 
-  void init() override {}
-  void quit() override {}
+    void init() override {}
+    void quit() override {}
 };
