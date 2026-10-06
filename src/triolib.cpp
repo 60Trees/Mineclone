@@ -1,4 +1,5 @@
 #include "triolib.hpp"
+#include "logger.hpp"
 
 namespace triolib {
     namespace {
@@ -135,3 +136,59 @@ namespace triolib {
         return result;
     }
 }  // namespace triolib
+
+static constexpr std::string_view newline = "\n";
+static constexpr std::string_view midnewl = GREY " ├ " RESET;
+static constexpr std::string_view endnewl = GREY " └ " RESET;
+
+#define __mkpref(coloured_text) \
+    (std::string(GREY) + TIMESTAMP + " " RESET coloured_text RESET ": ")
+
+Console console{
+    .enabled = true,
+
+    .log = {logger::string_source{__mkpref("   LOG")},
+        logger::string_source{std::string{newline}}, true, false,
+        logger::string_source{std::string{midnewl}},
+        logger::string_source{std::string{endnewl}}, std::cout},
+
+    .info = {logger::string_source{__mkpref(ITALIC "  INFO")},
+        logger::string_source{std::string{newline}}, true, false,
+        logger::string_source{std::string{midnewl}},
+        logger::string_source{std::string{endnewl}}, std::cout},
+
+    .warn = {logger::string_source{__mkpref(YELLOW "  WARN")},
+        logger::string_source{std::string{newline}}, true, false,
+        logger::string_source{std::string{midnewl}},
+        logger::string_source{std::string{endnewl}}, std::cerr},
+
+    .err = {logger::string_source{__mkpref(RED " ERROR")},
+        logger::string_source{std::string{newline}}, true, false,
+        logger::string_source{std::string{midnewl}},
+        logger::string_source{std::string{endnewl}}, std::cerr},
+
+    .debug = {logger::string_source{__mkpref(GREEN DIM ITALIC " DEBUG")},
+        logger::string_source{std::string{newline}}, true, false,
+        logger::string_source{std::string{midnewl}},
+        logger::string_source{std::string{endnewl}}, std::cout},
+};
+
+logger::Logger Console::generate_from_ostream(std::ostream& ostream) {
+    return {logger::string_source{__mkpref("NULL_LOGGER")},
+        logger::string_source{std::string{newline}}, true, false,
+        logger::string_source{std::string{midnewl}},
+        logger::string_source{std::string{endnewl}}, ostream};
+}
+
+logger::Logger Console::title(std::string_view _title) {
+    return title(_title, console.log);
+}
+logger::Logger Console::title(
+    std::string_view _title, const logger::Logger& extends_off) {
+    logger::Logger retval = extends_off;
+
+    retval.prefix = std::string(GREY) + TIMESTAMP + " " RESET +
+                    std::string(_title) + RESET + ": ";
+
+    return retval;
+}

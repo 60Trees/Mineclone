@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -10,6 +9,7 @@
 #include <typeinfo>
 #include <utility>
 #include <vector>
+#include <logger.hpp>
 
 #ifdef __EMSCRIPTEN__
 using uint = unsigned int;  // emscripten doesn't have `uint`
@@ -235,11 +235,15 @@ namespace triolib {
         T& get(bool exact = false) {
             if (exact) {
                 create_all_mods();
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpotentially-evaluated-expression"
                 for (auto& mod : mods)
                     if (typeid(*mod) == typeid(T))
                         return *static_cast<T*>(mod.get());
                 throw std::logic_error("Application module does not exist: " +
                                        std::string(typeid(T).name()));
+#pragma clang diagnostic pop
             }
             return getmod<T>();
         }
@@ -302,3 +306,12 @@ namespace triolib {
         if (!(to_check))                                                    \
             throw std::runtime_error("Assert `" #to_check "` has failed."); \
     } while (0)
+
+extern struct Console {
+    bool enabled;
+    logger::Logger log, info, warn, err, debug;
+
+    static logger::Logger title(std::string_view title, const logger::Logger& extends_off);
+    static logger::Logger title(std::string_view title);
+    static logger::Logger generate_from_ostream(std::ostream& ostream);
+} console;

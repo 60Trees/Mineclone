@@ -22,16 +22,16 @@ std::string_view load_asset(const std::string& path) {
     return {file.begin(), file.size()};
 }
 
-#define try_smth(task, taskname, onerr)                               \
-    try {                                                             \
-        task;                                                         \
-    } catch (std::exception & e) {                                    \
-        std::cerr << "[MAIN] Error " << typeid(e).name() << " while " \
-                  << taskname << ": " << e.what() << '\n';            \
-        {                                                             \
-            onerr;                                                    \
-        }                                                             \
-        throw;                                                        \
+#define try_smth(task, taskname, onerr)                                   \
+    try {                                                                 \
+        task;                                                             \
+    } catch (std::exception & e) {                                        \
+        main_err << "Error " << typeid(e).name() << " while " << taskname \
+                 << ": " << e.what();                                     \
+        {                                                                 \
+            onerr;                                                        \
+        }                                                                 \
+        throw;                                                            \
     }
 
 bool before_main = true;
@@ -41,6 +41,9 @@ int main(int argc, char** argv) {
 
     using namespace triolib;
     using namespace std;
+
+    auto main_err = console.title(RED "  MAIN", console.err);
+    auto main_out = console.title(GREEN "  MAIN", console.log);
 
     unique_ptr<Application> app = nullptr;
 
@@ -66,27 +69,27 @@ int main(int argc, char** argv) {
     };
 
     auto deconstruct = [&] {
-        cout << "[MAIN] Deconstructing\n";
+        main_out << "Deconstructing";
         try_smth(app = nullptr, "deconstructing", {});
     };
 
     auto quit = [&] {
-        cout << "[MAIN] Quitting\n";
+        main_out << "Quitting";
         try_smth(app->quit(), "quitting", { deconstruct(); });
         deconstruct();
     };
 
-    cout << "[MAIN] Constructing\n";
+    main_out << "Constructing";
     try_smth(app = create_application(), "constructing", { quit(); });
 
     try_smth(app->add_all_mods(), "adding mods", { quit(); });
 
-    cout << "[MAIN] Initializing\n";
+    main_out << "Initializing";
     try_smth(app->init(), "initializing", { quit(); });
 
-    cout << "[MAIN] Looping\n";
+    main_out << "Looping";
     try_smth(loop(), "looping", { quit(); });
 
-    cout << "[MAIN] Goodbye (:\n";
+    main_out << "Goodbye (:";
     return 0;
 }

@@ -24,13 +24,13 @@ struct Game : Application {
         ResourceHandler::ZipSource jar{
             std::filesystem::path(mc_client_location())};
         const auto manifest = jar.read("META-INF/MANIFEST.MF");
-        std::cout << "[DEBUG] Read JAR META-INF/MANIFEST.MF ("
-                  << manifest.size() << " bytes)\n";
+        console.debug << "Read JAR META-INF/MANIFEST.MF ("
+                  << manifest.size() << " bytes)";
 
         ResourceHandler::FilesystemSource files(SOURCE_DIR);
         const auto shader = files.read("assets/vert.glsl");
-        std::cout << "[DEBUG] Read assets/vert.glsl (" << shader.size()
-                  << " bytes)\n";
+        console.debug << "Read assets/vert.glsl (" << shader.size()
+                  << " bytes)";
     }
 } REGISTER_APP(Game);
 
@@ -48,15 +48,15 @@ struct RandomShi : AppModule {
     void loop() override {
         if (rh->has_loaded && !has_finished_loading) {
             has_finished_loading = true;
-            cout << "Loaded " << rh->resources.size() << " resources." << endl;
+            console.debug << "Loaded " << rh->resources.size() << " resources.";
             const auto* resource =
                 rh->resources.try_get("minecraft/gpu_warnlist.json");
             if (!resource)
                 throw runtime_error(
                     "Loaded resource is missing: "
                     "assets/minecraft/gpu_warnlist.json");
-            cout << "Read assets/minecraft/gpu_warnlist.json: "
-                 << resource->json().dump(2) << '\n';
+            console.debug << "Read assets/minecraft/gpu_warnlist.json: "
+                 << resource->json().dump(2);
         }
     }
     void quit() override {}

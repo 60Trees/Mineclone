@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include "logger.hpp"
 
 #if defined(__EMSCRIPTEN__)
 #    include <GLES3/gl3.h>
@@ -25,6 +26,8 @@ void set_opengl_version();
 std::string_view load_asset(const std::string& path);
 
 namespace opengl {
+    extern logger::Logger gl_log;
+    extern logger::Logger gl_err;
 
     inline std::string_view get_string(GLenum name) {
         return std::string_view(
@@ -124,13 +127,12 @@ namespace opengl {
                 break;
         }
 
-        std::cerr << "\n"
-                  << "[OPENGL] Debug callback\n"
-                  << "- Source:   " << source_str << '\n'
-                  << "- Type:     " << type_str << '\n'
-                  << "- Severity: " << severity_str << '\n'
-                  << "- ID:       " << id << '\n'
-                  << "- Message:  " << message << std::endl;
+        gl_err << "Debug callback\n"
+               << "- Source:   " << source_str << '\n'
+               << "- Type:     " << type_str << '\n'
+               << "- Severity: " << severity_str << '\n'
+               << "- ID:       " << id << '\n'
+               << "- Message:  " << message;
 
         // Stop in the debugger on serious OpenGL errors.
 #    if defined(__GNUC__) || defined(__clang__)
@@ -146,7 +148,7 @@ namespace opengl {
         glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
 
         if (!(flags & GL_CONTEXT_FLAG_DEBUG_BIT)) {
-            std::cerr << "WARNING: OpenGL debug context was not created.\n";
+            gl_err << "WARNING: OpenGL debug context was not created.";
 
             return;
         }
@@ -160,7 +162,7 @@ namespace opengl {
         glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE,
             GL_DEBUG_SEVERITY_NOTIFICATION, 0, nullptr, GL_FALSE);
 
-        std::cout << "OpenGL debug output enabled.\n";
+        gl_log << "OpenGL debug output enabled.";
     }
 #endif
 
@@ -176,8 +178,11 @@ namespace opengl {
     struct VBO {
         GLuint id = 0;
         bool initialized = false;
+        inline operator GLuint() const { return id; }
+        inline operator GLuint&() { return id; }
+        inline operator bool() const { return initialized; }
 
-        void create() {
+        inline void create() {
             if (initialized) return;
 
             glGenBuffers(1, &id);
@@ -185,9 +190,9 @@ namespace opengl {
             initialized = true;
         }
 
-        void bind() const { glBindBuffer(GL_ARRAY_BUFFER, id); }
+        inline void bind() const { glBindBuffer(GL_ARRAY_BUFFER, id); }
 
-        void destroy() {
+        inline void destroy() {
             if (!initialized) return;
 
             glDeleteBuffers(1, &id);
@@ -197,29 +202,33 @@ namespace opengl {
         }
 
         template <typename T>
-        void data(std::span<const T> data_to_upload, GLenum render_mode) {
+        inline void data(
+            std::span<const T> data_to_upload, GLenum render_mode) {
             glBufferData(GL_ARRAY_BUFFER,
                 static_cast<GLsizeiptr>(data_to_upload.size() * sizeof(T)),
                 data_to_upload.data(), render_mode);
         }
 
-        void data(const void* data, size_t size, GLenum render_mode) {
+        inline void data(const void* data, size_t size, GLenum render_mode) {
             glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(size), data,
                 render_mode);
         }
 
-        ~VBO() { destroy(); }
+        inline ~VBO() { destroy(); }
     };
 
     struct Shader {
         GLuint id = 0;
         bool initialized = false;
+        inline operator GLuint() const { return id; }
+        inline operator GLuint&() { return id; }
+        inline operator bool() const { return initialized; }
 
         GLenum type;
 
-        explicit Shader(GLenum type) : type(type) {}
+        inline explicit Shader(GLenum type) : type(type) {}
 
-        void create() {
+        inline void create() {
             if (initialized) return;
 
             id = glCreateShader(type);
@@ -238,7 +247,8 @@ namespace opengl {
             "#version 430 core\n";
 #endif
 
-        void source_from_strview(std::string_view source, bool raw = false) {
+        inline void source_from_strview(
+            std::string_view source, bool raw = false) {
             if (raw) {
                 const GLchar* str = source.data();
                 const GLint length = static_cast<GLint>(source.size());
@@ -256,11 +266,12 @@ namespace opengl {
 
         /// If it's not raw then it prepends the `preamble` string
         /// so that the shader is cross-compatible
-        void source_from_path(const std::string& path, bool raw = false) {
+        inline void source_from_path(
+            const std::string& path, bool raw = false) {
             source_from_strview(load_asset(path), raw);
         }
 
-        void compile() {
+        inline void compile() {
             glCompileShader(id);
 
             GLint success = GL_FALSE;
@@ -278,12 +289,12 @@ namespace opengl {
 
             glGetShaderInfoLog(id, log_length, nullptr, info_log.data());
 
-            std::cerr << "Shader compilation failed:\n" << info_log << '\n';
+            gl_err << "Shader compilation failed:\n" << info_log;
 
             throw std::logic_error("Shader compilation failed");
         }
 
-        void destroy() {
+        inline void destroy() {
             if (!initialized) return;
 
             glDeleteShader(id);
@@ -292,14 +303,17 @@ namespace opengl {
             initialized = false;
         }
 
-        ~Shader() { destroy(); }
+        inline ~Shader() { destroy(); }
     };
 
     struct ShaderProgram {
         GLuint id = 0;
         bool initialized = false;
+        inline operator GLuint() const { return id; }
+        inline operator GLuint&() { return id; }
+        inline operator bool() const { return initialized; }
 
-        void create() {
+        inline void create() {
             if (initialized) return;
 
             id = glCreateProgram();
@@ -312,11 +326,13 @@ namespace opengl {
             initialized = true;
         }
 
-        void attach(const Shader& shader) { glAttachShader(id, shader.id); }
+        inline void attach(const Shader& shader) {
+            glAttachShader(id, shader.id);
+        }
 
-        void attach(GLuint shaderid) { glAttachShader(id, shaderid); }
+        inline void attach(GLuint shaderid) { glAttachShader(id, shaderid); }
 
-        void link() {
+        inline void link() {
             glLinkProgram(id);
 
             GLint success = GL_FALSE;
@@ -334,14 +350,14 @@ namespace opengl {
 
             glGetProgramInfoLog(id, log_length, nullptr, info_log.data());
 
-            std::cerr << "Shader linking failed:\n" << info_log << '\n';
+            gl_err << "Shader linking failed:\n" << info_log;
 
             throw std::logic_error("Shader linking failed");
         }
 
-        void use() const { glUseProgram(id); }
+        inline void use() const { glUseProgram(id); }
 
-        void destroy() {
+        inline void destroy() {
             if (!initialized) return;
 
             glDeleteProgram(id);
@@ -350,14 +366,25 @@ namespace opengl {
             initialized = false;
         }
 
-        ~ShaderProgram() { destroy(); }
+        inline GLint get_uniform_location(
+            const std::string& name, bool throw_if_not_found) {
+            auto retval = glGetUniformLocation(id, name.c_str());
+            if (throw_if_not_found && retval < 0)
+                throw std::runtime_error("Uniform " + name + " was not found.");
+            return retval;
+        }
+
+        inline ~ShaderProgram() { destroy(); }
     };
 
     struct VAO {
         GLuint id = 0;
         bool initialized = false;
+        inline operator GLuint() const { return id; }
+        inline operator GLuint&() { return id; }
+        inline operator bool() const { return initialized; }
 
-        void create() {
+        inline void create() {
             if (initialized) return;
 
             glGenVertexArrays(1, &id);
@@ -365,9 +392,9 @@ namespace opengl {
             initialized = true;
         }
 
-        void bind() const { glBindVertexArray(id); }
+        inline void bind() const { glBindVertexArray(id); }
 
-        void destroy() {
+        inline void destroy() {
             if (!initialized) return;
 
             glDeleteVertexArrays(1, &id);
@@ -376,14 +403,44 @@ namespace opengl {
             initialized = false;
         }
 
-        void vertexAttribPointer(GLuint index, GLint count, GLenum type,
+        inline void vertexAttribPointer(GLuint index, GLint count, GLenum type,
             GLboolean normalized, GLsizei stride, size_t offset) {
             glVertexAttribPointer(index, count, type, normalized, stride,
                 reinterpret_cast<const void*>(offset));
         }
 
-        void enableAttribute(GLuint index) { glEnableVertexAttribArray(index); }
+        inline void enableAttribute(GLuint index) {
+            glEnableVertexAttribArray(index);
+        }
 
-        ~VAO() { destroy(); }
+        inline ~VAO() { destroy(); }
     };
+
+    struct Texture {
+        GLuint id = 0;
+        bool initialized = false;
+        inline operator GLuint() const { return id; }
+        inline operator GLuint&() { return id; }
+        inline operator bool() const { return initialized; }
+
+        inline void create() {
+            if (initialized) return;
+            glGenTextures(1, &id);
+            initialized = true;
+        }
+        inline void destroy() {
+            if (!initialized) return;
+            initialized = false;
+        }
+        inline void bind() const { glBindTexture(GL_TEXTURE_2D, id); }
+    };
+
+    inline void handle_error() {
+        const auto upload_error = glGetError();
+        if (upload_error == GL_NO_ERROR) return;
+
+        gl_err << "Failed to upload texture atlas: " << upload_error;
+        throw std::runtime_error(
+            "Failed to upload texture atlas: " + std::to_string(upload_error));
+    }
 }  // namespace opengl

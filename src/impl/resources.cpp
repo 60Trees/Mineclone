@@ -31,7 +31,7 @@ using namespace std;
 
 struct ResourceHandlerImpl : ResourceHandler {
     virtual void start_loading() override {
-        cout << "Starting to load resources..." << endl;
+        console.debug << "Starting to load resources...";
 
         auto start = chrono::high_resolution_clock::now();
         has_started_loading = true;
@@ -60,9 +60,9 @@ struct ResourceHandlerImpl : ResourceHandler {
         }
 
         auto end = chrono::high_resolution_clock::now();
-        cout << "Finished loading resources, time="
+        console.debug << "Finished loading resources, time="
              << chrono::duration_cast<chrono::milliseconds>(end - start).count()
-             << "ms" << endl;
+             << "ms";
         has_loaded = true;
     }
 } REGISTER_MOD(ResourceHandlerImpl);

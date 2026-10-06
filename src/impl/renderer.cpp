@@ -3,10 +3,8 @@
 #include <base/poller.hpp>
 #include <base/renderer.hpp>
 #include <base/resources.hpp>
-#include <iostream>
 #include <unordered_set>
 #include <vector>
-#include <iostream>
 
 #include <opengl.hpp>
 
@@ -45,8 +43,11 @@ struct WindowImpl : Window {
 
 #ifndef __EMSCRIPTEN__
         const int loaded = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
-        cout << "glad load result: " << loaded << "\n";
-        tassert(loaded);
+        opengl::gl_log << "Glad return val: " << loaded;
+#endif
+
+#ifdef DO_GL_DEBUG
+        opengl::enable_debugging();
 #endif
 
         GLint count = 0;
@@ -57,11 +58,12 @@ struct WindowImpl : Window {
             gl_extensions.emplace(
                 reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i)));
 
-        cout << "OpenGL " << glGetString(GL_VERSION) << ":\n";
-        cout << "- Vendor: " << glGetString(GL_VENDOR) << '\n';
-        cout << "- Renderer: " << glGetString(GL_RENDERER) << '\n';
-        cout << "- GLSL: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << '\n';
-        cout << "- Has " << gl_extensions.size() << " extensions.\n";
+        opengl::gl_log << "OpenGL " << glGetString(GL_VERSION)
+                       << "\nVendor: " << glGetString(GL_VENDOR)
+                       << "\nRenderer: " << glGetString(GL_RENDERER)
+                       << "\nGLSL: " << glGetString(GL_SHADING_LANGUAGE_VERSION)
+                       << "\nHas " << gl_extensions.size() << " extensions.";
+
         SubApp::init();
     }
 
@@ -107,7 +109,7 @@ struct GameRenderer : Renderer {
     FpsHandler* fps = nullptr;
     Window* window = nullptr;
     ResourceHandler::Resources* resources = nullptr;
-    GLuint texture = 0;
+    opengl::Texture texture;
     GLint texture_location = -1;
     bool should_resize = true;
 
@@ -126,8 +128,6 @@ struct GameRenderer : Renderer {
     opengl::VAO vao;
 
     void init() override {
-        cout << "ALALALALALALALALLALALA\n";
-
         window = &static_cast<Window&>(*parent);
         fps = &parent->application->get<FpsHandler>();
         resources = &parent->application->get<ResourceHandler>().resources;
@@ -140,48 +140,52 @@ struct GameRenderer : Renderer {
         if (atlases.empty())
             throw runtime_error("Block texture atlas is empty.");
         for (const auto entry : atlases) {
-            cout << entry.name << endl;
+            // cout << entry.name << endl;
         }
-        const auto& atlas = atlases.front();
-        const auto& texture_path = atlas.locations.begin()->first;
-        const auto rect = atlas[texture_path];
-        const auto width = static_cast<float>(atlas.image.width);
-        const auto height = static_cast<float>(atlas.image.height);
-        const float u0 = 0.0f;
-        const float u1 = 1.0f;
-        const float v0 = 0.0f;
-        const float v1 = 1.0f;
-        const auto first_pixel = atlas.image.pixels.data();
-        cout << "[DEBUG] Atlas " << atlas.image.width << "x"
-             << atlas.image.height << ", texture " << texture_path
-             << ", first pixel "
-             << static_cast<unsigned int>(
-                    to_integer<unsigned char>(first_pixel[0]))
-             << ", "
-             << static_cast<unsigned int>(
-                    to_integer<unsigned char>(first_pixel[1]))
-             << ", "
-             << static_cast<unsigned int>(
-                    to_integer<unsigned char>(first_pixel[2]))
-             << ", UV " << u0 << "," << v0 << " -> " << u1 << "," << v1 << '\n';
-        vertices = {-1.0f, -1.0f, 0.0f, u0, v0, 1.0f, -1.0f, 0.0f, u1, v0, 1.0f,
-            1.0f, 0.0f, u1, v1, 1.0f, 1.0f, 0.0f, u1, v1, -1.0f, 1.0f, 0.0f, u0,
-            v1, -1.0f, -1.0f, 0.0f, u0, v0};
 
-        glGenTextures(1, &texture);
-        glBindTexture(GL_TEXTURE_2D, texture);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, atlas.image.width,
-            atlas.image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-            atlas.image.pixels.data());
-        const auto upload_error = glGetError();
-        if (upload_error != GL_NO_ERROR)
-            throw runtime_error(
-                "Failed to upload texture atlas: " + to_string(upload_error));
+        struct UV {
+            float u0, u1, v0, v1;
+        };
+
+        const auto& atlas = atlases.front();
+
+        const UV uv = [&] -> UV {
+            const auto& test_texture = atlas.locations.begin();
+            const float width = atlas.image.width;
+            const float height = atlas.image.height;
+            UV retval = {
+                ((float)test_texture->second.first.x) / width,
+                ((float)test_texture->second.first.y) / height,
+                ((float)test_texture->second.second.x) / width,
+                ((float)test_texture->second.second.y) / height,
+            };
+            console.debug << "Atlas " << atlas.image.width << "x"
+                          << atlas.image.height << "\nTexture "
+                          << test_texture->first << "\nUV " << retval.u0 << ","
+                          << retval.v0 << " -> " << retval.u1 << ","
+                          << retval.v1;
+            return retval;
+        }();
+
+        vertices = {-1.0f, -1.0f, 0.0f, uv.u0, uv.v0, 1.0f, -1.0f, 0.0f, uv.u1,
+            uv.v0, 1.0f, 1.0f, 0.0f, uv.u1, uv.v1, 1.0f, 1.0f, 0.0f, uv.u1,
+            uv.v1, -1.0f, 1.0f, 0.0f, uv.u0, uv.v1, -1.0f, -1.0f, 0.0f, uv.u0,
+            uv.v0};
+
+        {
+            texture.create();
+            texture.bind();
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, atlas.image.width,
+                atlas.image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                atlas.image.pixels.data());
+
+            opengl::handle_error();
+        }
 
         ADD_UNIFORM(
             "u_time", glUniform1ui(b, static_cast<unsigned int>(r.fps->ticks)));
@@ -220,10 +224,10 @@ struct GameRenderer : Renderer {
             uniform.base.id = shaderprogram.id;
             uniform.base.init(uniform.name.c_str());
         }
-        glUseProgram(shaderprogram.id);
-        texture_location = glGetUniformLocation(shaderprogram.id, "u_texture");
-        if (texture_location < 0)
-            throw runtime_error("Texture sampler uniform was not found.");
+
+        shaderprogram.use();
+        texture_location =
+            shaderprogram.get_uniform_location("u_texture", true);
         glUniform1i(texture_location, 0);
     }
 
@@ -233,7 +237,7 @@ struct GameRenderer : Renderer {
         glClear(GL_COLOR_BUFFER_BIT);
         shaderprogram.use();
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture);
+        texture.bind();
         glUniform1i(texture_location, 0);
         for (auto& uniform : uniforms) uniform.update(uniform, *this);
         vao.bind();
@@ -247,10 +251,7 @@ struct GameRenderer : Renderer {
     }
 
     void quit() override {
-        if (texture) {
-            glDeleteTextures(1, &texture);
-            texture = 0;
-        }
+        texture.destroy();
         shaderprogram.destroy();
     }
 } REGISTER_MOD(GameRenderer, Window);
