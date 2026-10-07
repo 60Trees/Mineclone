@@ -31,7 +31,31 @@ namespace {
         if (!prefix.empty() && !prefix.ends_with('/')) prefix += '/';
         return path.starts_with(prefix);
     }
-}  // namespace
+
+    bool is_directly_in_directory(
+        std::string_view path, std::string_view directory) {
+        if (!is_in_directory(path, directory)) return false;
+
+        std::string prefix(directory);
+        if (!prefix.empty() && !prefix.ends_with('/')) prefix += '/';
+        return path.find('/', prefix.size()) == std::string_view::npos;
+    }
+
+    std::vector<std::string> list_type(
+        const Resources& resources, std::string_view directory,
+        ResourceHandler::ResourceType type, bool recursive) {
+        std::vector<std::string> result;
+        for (const auto& [path, resource] : resources.get_resources()) {
+            const auto source = source_path(path);
+            const bool in_directory = recursive
+                ? is_in_directory(source, directory)
+                : is_directly_in_directory(source, directory);
+            if (in_directory && resource.type == type) result.push_back(source);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    }
+    }  // namespace
 
 const Rect& Resources::Atlas::operator[](std::string_view path) const {
     const auto it = locations.find(resource_key(path));
@@ -50,6 +74,16 @@ std::vector<std::string> Resources::list_files(
     }
     std::sort(result.begin(), result.end());
     return result;
+}
+
+std::vector<std::string> Resources::list_pngs(
+    std::string_view directory, bool recursive) const {
+    return list_type(*this, directory, ResourceType::PNG, recursive);
+}
+
+std::vector<std::string> Resources::list_jsons(
+    std::string_view directory, bool recursive) const {
+    return list_type(*this, directory, ResourceType::JSON, recursive);
 }
 
 std::vector<std::string> Resources::list_dirs(
@@ -77,117 +111,114 @@ void Resources::load_all_atlases() {
         queried_limit > 0 ? static_cast<unsigned int>(queried_limit) : 4096u;
 
     atlases.clear();
-    std::set<std::string> assigned;
 
-    auto pack = [&](const std::string& name,
-                    const std::vector<std::string>& requested,
-                    bool include_unassigned) {
-        std::vector<std::string> pending;
-        if (include_unassigned) {
-            for (const auto& [path, resource] : resources)
-                if (resource.type == ResourceType::PNG &&
-                    !assigned.contains(path))
-                    pending.push_back(path);
-        } else {
-            for (const auto& path : requested) {
-                const auto key = resource_key(path);
-                const auto* resource = try_get(key);
-                if (!resource)
-                    throw std::runtime_error(
-                        "Atlas texture is missing or not PNG: " + path);
-                if (resource->type != ResourceType::PNG) continue;
-                pending.push_back(key);
-            }
+    for (const auto& [name, requested] : atlas_definitions) {
+        std::vector<std::string> paths;
+        for (const auto& path : requested) {
+            const auto key = resource_key(path);
+            const auto* resource = try_get(key);
+            if (!resource)
+                throw std::runtime_error(
+                    "Atlas texture is missing: " + path);
+            if (resource->type != ResourceType::PNG)
+                throw std::runtime_error("Atlas texture is not PNG: " + path);
+            paths.push_back(key);
         }
 
-        auto& output = atlases[name];
-        while (!pending.empty()) {
-            std::vector<stbrp_rect> rects;
-            rects.reserve(pending.size());
-            for (std::size_t i = 0; i < pending.size(); ++i) {
-                const auto& image = get(pending[i]).image();
-                if (image.width > static_cast<int>(limit) ||
-                    image.height > static_cast<int>(limit))
-                    throw std::runtime_error(
-                        "Texture exceeds maximum atlas size: " + pending[i]);
-                rects.push_back(
-                    {static_cast<int>(i), image.width, image.height, 0, 0, 0});
-            }
+        // Reserve one texel for textures that cannot fit in this atlas.
+        std::vector<stbrp_rect> rects;
+        rects.push_back({-1, 1, 1, 0, 0, 0});
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            const auto& image = get(paths[i]).image();
+            rects.push_back({static_cast<int>(i), image.width, image.height,
+                0, 0, 0});
+        }
 
+        unsigned int size = 1;
+        std::vector<stbrp_rect> packed_rects;
+        while (true) {
+            packed_rects = rects;
             stbrp_context context;
-            std::vector<stbrp_node> nodes(limit);
-            stbrp_init_target(&context, static_cast<int>(limit),
-                static_cast<int>(limit), nodes.data(),
+            std::vector<stbrp_node> nodes(size);
+            stbrp_init_target(&context, static_cast<int>(size),
+                static_cast<int>(size), nodes.data(),
                 static_cast<int>(nodes.size()));
-            stbrp_pack_rects(
-                &context, rects.data(), static_cast<int>(rects.size()));
+            stbrp_pack_rects(&context, packed_rects.data(),
+                static_cast<int>(packed_rects.size()));
 
-            unsigned int width = 0;
-            unsigned int height = 0;
-            std::vector<std::string> packed;
-            for (const auto& rect : rects) {
-                if (!rect.was_packed) continue;
-                packed.push_back(pending[rect.id]);
-                width =
-                    std::max(width, static_cast<unsigned int>(rect.x + rect.w));
-                height = std::max(
-                    height, static_cast<unsigned int>(rect.y + rect.h));
-            }
-            if (packed.empty())
-                throw std::runtime_error("Failed to pack atlas textures.");
-
-            Atlas atlas;
-            atlas.name = name;
-            atlas.image.width = static_cast<int>(width);
-            atlas.image.height = static_cast<int>(height);
-            atlas.image.pixels.resize(
-                static_cast<std::size_t>(width) * height * 4);
-
-            for (const auto& rect : rects) {
-                if (!rect.was_packed) continue;
-                const auto& path = pending[rect.id];
-                const auto& image = get(path).image();
-                for (int y = 0; y < rect.h; ++y)
-                    std::memcpy(
-                        atlas.image.pixels.data() +
-                            (static_cast<std::size_t>(rect.y + y) * width +
-                                rect.x) *
-                                4,
-                        image.pixels.data() +
-                            static_cast<std::size_t>(y) * rect.w * 4,
-                        static_cast<std::size_t>(rect.w) * 4);
-                atlas.locations.emplace(
-                    path, Rect{{static_cast<unsigned int>(rect.x),
-                                   static_cast<unsigned int>(rect.y)},
-                              {static_cast<unsigned int>(rect.x + rect.w),
-                                  static_cast<unsigned int>(rect.y + rect.h)}});
-                assigned.insert(path);
-            }
-            output.push_back(std::move(atlas));
-            pending.erase(
-                std::remove_if(pending.begin(), pending.end(),
-                    [&](const auto& path) { return assigned.contains(path); }),
-                pending.end());
+            const bool all_packed = std::all_of(packed_rects.begin(),
+                packed_rects.end(),
+                [](const auto& rect) { return rect.was_packed; });
+            if (all_packed || size == limit) break;
+            size = std::min(limit, size * 2);
         }
-    };
 
-    for (const auto& [name, paths] : atlas_definitions)
-        pack(name, paths, false);
-    pack("spare_atlas", {}, true);
+        Atlas atlas;
+        atlas.name = name;
+        unsigned int width = 1;
+        unsigned int height = 1;
+        const auto& error_rect = packed_rects.front();
+        width = std::max(width, static_cast<unsigned int>(
+                                  error_rect.x + error_rect.w));
+        height = std::max(height, static_cast<unsigned int>(
+                                   error_rect.y + error_rect.h));
+
+        for (const auto& rect : packed_rects) {
+            if (!rect.was_packed) {
+                console.err << "Texture cannot fit in atlas " << name << ": "
+                            << paths[rect.id] << "; using error texture.";
+                atlas.locations.emplace(paths[rect.id],
+                    Rect{{static_cast<unsigned int>(error_rect.x),
+                             static_cast<unsigned int>(error_rect.y)},
+                        {static_cast<unsigned int>(error_rect.x + 1),
+                            static_cast<unsigned int>(error_rect.y + 1)}});
+                continue;
+            }
+            width = std::max(width, static_cast<unsigned int>(rect.x + rect.w));
+            height =
+                std::max(height, static_cast<unsigned int>(rect.y + rect.h));
+        }
+
+        atlas.image.width = static_cast<int>(width);
+        atlas.image.height = static_cast<int>(height);
+        atlas.image.pixels.assign(static_cast<std::size_t>(width) * height * 4,
+            std::byte{0});
+        atlas.image.pixels[0] = std::byte{255};
+        atlas.image.pixels[1] = std::byte{0};
+        atlas.image.pixels[2] = std::byte{255};
+        atlas.image.pixels[3] = std::byte{255};
+
+        for (const auto& rect : packed_rects) {
+            if (!rect.was_packed || rect.id < 0) continue;
+            const auto& path = paths[rect.id];
+            const auto& image = get(path).image();
+            for (int y = 0; y < rect.h; ++y)
+                std::memcpy(atlas.image.pixels.data() +
+                        (static_cast<std::size_t>(rect.y + y) * width + rect.x) *
+                            4,
+                    image.pixels.data() + static_cast<std::size_t>(y) * rect.w *
+                                             4,
+                    static_cast<std::size_t>(rect.w) * 4);
+            atlas.locations.insert_or_assign(path,
+                Rect{{static_cast<unsigned int>(rect.x),
+                         static_cast<unsigned int>(rect.y)},
+                    {static_cast<unsigned int>(rect.x + rect.w),
+                        static_cast<unsigned int>(rect.y + rect.h)}});
+        }
+        atlases.insert_or_assign(name, std::move(atlas));
+    }
 }
 
-const std::vector<Atlas>& Resources::get_atlases(std::string_view name) const {
-    static const std::vector<Atlas> empty;
+const Atlas* Resources::get_atlas(std::string_view name) const {
     const auto it = atlases.find(std::string(name));
-    return it == atlases.end() ? empty : it->second;
+    return it == atlases.end() ? nullptr : &it->second;
 }
 
 std::optional<std::pair<const ResourceHandler::Image*, Rect>>
 Resources::find_texture(std::string_view path) const {
     const auto key = resource_key(path);
-    for (const auto& [name, values] : atlases)
-        for (const auto& atlas : values)
-            if (atlas.locations.contains(key))
-                return std::pair{&atlas.image, atlas.locations.at(key)};
+    for (const auto& [name, atlas] : atlases)
+        if (atlas.locations.contains(key))
+            return std::pair{&atlas.image, atlas.locations.at(key)};
     return std::nullopt;
 }
