@@ -6,8 +6,9 @@
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec2 aUv;
 out vec2 uv;
+uniform mat4 u_transform;
 
 void main() {
-    gl_Position = vec4(aPos.x * 2.0 - 1.0, 1.0 - aPos.y * 2.0, aPos.z, 1.0);
+    gl_Position = u_transform * vec4(aPos, 1.0);
     uv = aUv;
 }

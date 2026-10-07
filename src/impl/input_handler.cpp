@@ -24,3 +24,5 @@ struct EventPoller : AppModule {
 
     void quit() override {}
 } REGISTER_MOD(EventPoller);
+
+struct KeyboardInput : InputHandler {} REGISTER_MOD(KeyboardInput);

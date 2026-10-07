@@ -8,7 +8,9 @@
 #include <string_view>
 
 struct Camera {
-    float pitch, yaw, roll;
+    float pitch = 0.0f;
+    float yaw = 0.0f;
+    float roll = 0.0f;
     Position pos;
 };
 
