@@ -202,12 +202,15 @@ struct ResourceHandler : triolib::AppModule {
 
         [[nodiscard]] std::vector<std::string> list_files(
             std::string_view directory) const;
+        [[nodiscard]] std::vector<std::string> list_pngs(
+            std::string_view directory, bool recursive = true) const;
+        [[nodiscard]] std::vector<std::string> list_jsons(
+            std::string_view directory, bool recursive = true) const;
         [[nodiscard]] std::vector<std::string> list_dirs(
             std::string_view directory) const;
         void define_atlas(std::string name, std::vector<std::string> paths);
         void load_all_atlases();
-        [[nodiscard]] const std::vector<Atlas>& get_atlases(
-            std::string_view name) const;
+        [[nodiscard]] const Atlas* get_atlas(std::string_view name) const;
         [[nodiscard]] std::optional<std::pair<const Image*, AtlasRect>>
         find_texture(std::string_view path) const;
 
@@ -225,7 +228,7 @@ struct ResourceHandler : triolib::AppModule {
 
         std::vector<std::pair<std::string, std::vector<std::string>>>
             atlas_definitions;
-        std::unordered_map<std::string, std::vector<Atlas>> atlases;
+        std::unordered_map<std::string, Atlas> atlases;
     };
 
     Resources resources;

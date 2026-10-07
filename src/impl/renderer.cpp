@@ -111,7 +111,10 @@ struct GameRenderer : Renderer {
     ResourceHandler::Resources* resources = nullptr;
     opengl::Texture texture;
     GLint texture_location = -1;
-    bool should_resize = true;
+
+    struct UV {
+        float u0, u1, v0, v1;
+    };
 
     struct Uniform {
         string name;
@@ -119,13 +122,26 @@ struct GameRenderer : Renderer {
         opengl::ShaderUniform base;
     };
 
-    vector<float> vertices{-1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f,
-        1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
-        -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 0.0f, 0.0f};
+    vector<UV> block_uvs;
+    vector<float> vertices;
     vector<Uniform> uniforms;
     opengl::ShaderProgram shaderprogram;
     opengl::VBO vbo;
     opengl::VAO vao;
+    size_t displayed_block = 0;
+
+    void set_quad_uv(const UV& uv) {
+        vertices = {
+            // Top-left, top-right, bottom-right.
+            0.0f, 0.0f, 0.0f, uv.u0, uv.v0,
+            1.0f, 0.0f, 0.0f, uv.u1, uv.v0,
+            1.0f, 1.0f, 0.0f, uv.u1, uv.v1,
+            // Bottom-right, bottom-left, top-left.
+            1.0f, 1.0f, 0.0f, uv.u1, uv.v1,
+            0.0f, 1.0f, 0.0f, uv.u0, uv.v1,
+            0.0f, 0.0f, 0.0f, uv.u0, uv.v0,
+        };
+    }
 
     void init() override {
         window = &static_cast<Window&>(*parent);
@@ -133,44 +149,27 @@ struct GameRenderer : Renderer {
         resources = &parent->application->get<ResourceHandler>().resources;
 
         const auto paths =
-            resources->list_files("assets/minecraft/textures/block/");
+            resources->list_pngs("assets/minecraft/textures/block/");
         resources->define_atlas("assets/textures/block", paths);
         resources->load_all_atlases();
-        const auto& atlases = resources->get_atlases("assets/textures/block");
-        if (atlases.empty())
+        const auto* atlas = resources->get_atlas("assets/textures/block");
+        if (!atlas)
             throw runtime_error("Block texture atlas is empty.");
-        for (const auto entry : atlases) {
-            // cout << entry.name << endl;
+
+        const float width = atlas->image.width;
+        const float height = atlas->image.height;
+        block_uvs.reserve(atlas->locations.size());
+        for (const auto& [path, rect] : atlas->locations) {
+            block_uvs.push_back({
+                static_cast<float>(rect.first.x) / width,
+                static_cast<float>(rect.second.x) / width,
+                1.0f - static_cast<float>(rect.second.y) / height,
+                1.0f - static_cast<float>(rect.first.y) / height,
+            });
         }
-
-        struct UV {
-            float u0, u1, v0, v1;
-        };
-
-        const auto& atlas = atlases.front();
-
-        const UV uv = [&] -> UV {
-            const auto& test_texture = atlas.locations.begin();
-            const float width = atlas.image.width;
-            const float height = atlas.image.height;
-            UV retval = {
-                ((float)test_texture->second.first.x) / width,
-                ((float)test_texture->second.first.y) / height,
-                ((float)test_texture->second.second.x) / width,
-                ((float)test_texture->second.second.y) / height,
-            };
-            console.debug << "Atlas " << atlas.image.width << "x"
-                          << atlas.image.height << "\nTexture "
-                          << test_texture->first << "\nUV " << retval.u0 << ","
-                          << retval.v0 << " -> " << retval.u1 << ","
-                          << retval.v1;
-            return retval;
-        }();
-
-        vertices = {-1.0f, -1.0f, 0.0f, uv.u0, uv.v0, 1.0f, -1.0f, 0.0f, uv.u1,
-            uv.v0, 1.0f, 1.0f, 0.0f, uv.u1, uv.v1, 1.0f, 1.0f, 0.0f, uv.u1,
-            uv.v1, -1.0f, 1.0f, 0.0f, uv.u0, uv.v1, -1.0f, -1.0f, 0.0f, uv.u0,
-            uv.v0};
+        if (block_uvs.empty())
+            throw runtime_error("Block texture atlas has no textures.");
+        set_quad_uv(block_uvs.front());
 
         {
             texture.create();
@@ -180,9 +179,9 @@ struct GameRenderer : Renderer {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, atlas.image.width,
-                atlas.image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                atlas.image.pixels.data());
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, atlas->image.width,
+                atlas->image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                atlas->image.pixels.data());
 
             opengl::handle_error();
         }
@@ -197,7 +196,7 @@ struct GameRenderer : Renderer {
 
         vbo.create();
         vbo.bind();
-        vbo.data<float>(vertices, GL_STATIC_DRAW);
+        vbo.data<float>(vertices, GL_DYNAMIC_DRAW);
 
         vao.vertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), 0);
         vao.enableAttribute(0);
@@ -233,6 +232,18 @@ struct GameRenderer : Renderer {
 
     void loop() override {
         auto& window = *this->window;
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSizeInPixels(window.sdl_window(), &width, &height);
+        glViewport(0, 0, width, height);
+        const size_t block =
+            static_cast<size_t>((fps->ticks / 100) % block_uvs.size());
+        if (block != displayed_block) {
+            displayed_block = block;
+            set_quad_uv(block_uvs[displayed_block]);
+            vbo.bind();
+            vbo.data<float>(vertices, GL_DYNAMIC_DRAW);
+        }
         glClearColor(1.f, 0.05f, 0.08f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         shaderprogram.use();
@@ -242,11 +253,6 @@ struct GameRenderer : Renderer {
         for (auto& uniform : uniforms) uniform.update(uniform, *this);
         vao.bind();
         glDrawArrays(GL_TRIANGLES, 0, 6);
-        if (should_resize) {
-            const auto size = window.window_size();
-            glViewport(0, 0, size.x, size.y);
-            should_resize = false;
-        }
         SDL_GL_SwapWindow(window.sdl_window());
     }
 
