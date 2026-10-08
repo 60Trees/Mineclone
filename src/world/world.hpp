@@ -107,7 +107,7 @@ struct World : triolib::SubApp {
     /// gets added by that amount and all World::SnapHandlers
     /// get the callback.
     /// For example: Center goes above
-    double (*center)[3];
+    Camera camera;
 
     struct Module : triolib::Module {
         tClass;
