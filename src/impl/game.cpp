@@ -9,6 +9,7 @@
 #include <base/renderer.hpp>
 #include <base/resources.hpp>
 #include <cmrc/cmrc.hpp>
+#include <filesystem>
 CMRC_DECLARE(assets);
 
 extern "C" const char* mc_client_location();
@@ -22,6 +23,9 @@ struct Game : Application {
     Game() { name = "Mineclone"; }
     void init() override {
         Application::init();
+
+        load_subapp("WindowImpl");
+        load_subapp("WorldImpl");
         ResourceHandler::ZipSource jar{std::filesystem::path(mc_client_location())};
         const auto manifest = jar.read("META-INF/MANIFEST.MF");
         console.debug << "Read JAR META-INF/MANIFEST.MF (" << manifest.size() << " bytes)";

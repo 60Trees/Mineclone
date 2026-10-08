@@ -26,7 +26,7 @@ struct ResourceHandler : triolib::AppModule {
 
     virtual void start_loading() = 0;
 
-    bool does_go_after_init(const triolib::AppModule& other) const override { return true; }
+    bool order_init_does_go_after(const triolib::AppModule*) const override { return true; }
 
     void init() override { start_loading(); }
     void loop() override {}

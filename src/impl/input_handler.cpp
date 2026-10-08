@@ -9,8 +9,8 @@ struct EventPoller : AppModule {
 
     void init() override { input_handlers = parent->get_mods<InputHandler>(); }
 
-    bool does_go_before_loop(const AppModule& other) const override { return true; }
-    float get_priority_loop() const override { return 10.0f; }
+    bool order_loop_does_go_before(const AppModule*) const override { return true; }
+    double loop_order_priority() const override { return 10.0; }
     void loop() override {
         for (SDL_Event event; SDL_PollEvent(&event);) {
             if (event.type == SDL_EVENT_QUIT) parent->done = true;

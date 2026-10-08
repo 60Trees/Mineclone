@@ -139,7 +139,7 @@ struct RegistryList : triolib::AppModule {
     std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
     std::vector<std::unique_ptr<Registerable>> owned_registries;
 
-    bool does_go_after_init(const triolib::AppModule& other) const override { return true; }
+    bool order_init_does_go_after(const triolib::AppModule*) const override { return true; }
 
     /// @note Should be safe to call multiple times
     virtual void unload_all() = 0;

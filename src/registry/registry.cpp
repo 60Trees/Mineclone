@@ -8,8 +8,8 @@ using namespace triolib;
 
 struct RegistryListImpl : RegistryList {
     tClass;
-    float get_priority_init() const override { return 100.0f; }
-    bool does_go_before_init(const triolib::AppModule&) const override { return true; }
+    double init_order_priority() const override { return 100.0; }
+    bool order_init_does_go_before(const triolib::AppModule*) const override { return true; }
 
     void unload_all() override {
         // clear all resources

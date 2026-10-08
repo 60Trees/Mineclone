@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <map>
 #include <memory>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -45,11 +47,14 @@ constexpr static BuildType build_type = static_cast<BuildType>(BUILD_TYPE);
     }
 
 #define tClass __tClass public:
+#define tSubApp(classname) tClass
+#define tApplication(classname) tClass
 
 namespace triolib {
     struct BaseClass {
         virtual ~BaseClass() = default;
         virtual void init() = 0;
+        virtual void loop() = 0;
         virtual void quit() = 0;
         /**
          * Virtual name
@@ -60,34 +65,37 @@ namespace triolib {
     struct SubApp;
     struct Application;
 
-    struct Module : BaseClass {
-        tClass;
-        SubApp* parent = nullptr;
-        virtual void loop() {}
+    template <typename T>
+    struct Ordered {
+        virtual bool order_init_does_go_before(const T* other) const { return false; }
+        virtual bool order_init_does_go_after(const T* other) const { return false; }
+        virtual bool order_loop_does_go_before(const T* other) const { return false; }
+        virtual bool order_loop_does_go_after(const T* other) const { return false; }
+        virtual double init_order_priority() const { return 0.0; }
+        virtual double loop_order_priority() const { return 0.0; }
     };
 
-    struct AppModule : BaseClass {
+    struct Module : BaseClass, Ordered<Module> {
+        tClass;
+        SubApp* parent = nullptr;
+    };
+
+    struct AppModule : BaseClass, Ordered<AppModule> {
         tClass;
         Application* parent = nullptr;
-        virtual void loop() {}
-
-        virtual bool does_go_before_init(const AppModule&) const { return false; }
-        virtual bool does_go_after_init(const AppModule&) const { return false; }
-        virtual float get_priority_init() const { return 0.0f; }
-        virtual bool does_go_before_loop(const AppModule&) const { return false; }
-        virtual bool does_go_after_loop(const AppModule&) const { return false; }
-        virtual float get_priority_loop() const { return 0.0f; }
     };
 
     using AppModFactory = std::unique_ptr<AppModule> (*)();
     using ModFactory = std::unique_ptr<Module> (*)();
     using ModPredicate = bool (*)(SubApp*);
     using SubAppFactory = std::unique_ptr<SubApp> (*)();
+    using NamedSubAppFactory = std::pair<std::string, SubAppFactory>;
     using ApplicationFactory = std::unique_ptr<Application> (*)();
 
     void register_application(ApplicationFactory);
     void register_appmod(AppModFactory);
     void register_subapp(SubAppFactory);
+    void register_subapp(std::string, SubAppFactory);
     void register_mod(ModFactory, ModPredicate);
     std::unique_ptr<Application> create_application();
 
@@ -106,7 +114,7 @@ namespace triolib {
     template <typename T>
         requires std::is_base_of_v<SubApp, T>
     void register_subapp() {
-        register_subapp([]() -> std::unique_ptr<SubApp> { return std::make_unique<T>(); });
+        register_subapp(T::sname(), []() -> std::unique_ptr<SubApp> { return std::make_unique<T>(); });
     }
 
     template <typename T, typename Parent>
@@ -115,25 +123,30 @@ namespace triolib {
         register_mod([]() -> std::unique_ptr<Module> { return std::make_unique<T>(); },
             [](SubApp* candidate) { return dynamic_cast<Parent*>(candidate) != nullptr; });
     }
+
+    /// Running `SubApp::init()`, `SubApp::loop()` or `SubApp::quit()` will handle all SubApp mods.
     struct SubApp : BaseClass {
         tClass;
         Application* application = nullptr;
         std::vector<std::unique_ptr<Module>> mods;
+        std::vector<Module*> init_mod_order;
+        std::vector<Module*> loop_mod_order;
         bool added_all_mods = false;
 
         void init() override {
-            create_all_mods();
-            for (auto& mod : mods) mod->init();
+            load_all_mods();
+            for (auto* mod : init_mod_order) mod->init();
         }
-        virtual void loop() {
-            for (auto& mod : mods) mod->loop();
+        void loop() override {
+            for (auto* mod : loop_mod_order) mod->loop();
         }
         void quit() override {
-            for (auto it = mods.rbegin(); it != mods.rend(); ++it) (*it)->quit();
+            for (auto* mod : init_mod_order | std::views::reverse) mod->quit();
         }
 
         void create_all_mods();
-        void add_all_mods() { create_all_mods(); }
+        void load_all_mods();
+        void add_all_mods() { load_all_mods(); }
 
         template <typename T>
         bool hasmod() {
@@ -158,28 +171,47 @@ namespace triolib {
         }
     };
 
+    /// Running `Application::init()`, `Application::loop()` or `Application::quit()` will handle all Application mods.
     struct Application : BaseClass {
         tClass;
 
         std::string name;
         bool done = false;
         std::vector<std::unique_ptr<AppModule>> mods;
-        std::vector<std::unique_ptr<SubApp>> subapps;
+        std::map<std::string, std::unique_ptr<SubApp>> subapps;
         bool added_all_mods = false;
         bool added_all_subapps = false;
+        std::vector<AppModule*> init_mod_order;
         std::vector<AppModule*> loop_order;
+        std::vector<AppModule*> loop_mod_order;
 
         void init() override;
-        void loop();
+        void loop() override;
         void quit() override;
 
         void create_all_mods();
-        void add_all_mods() { create_all_mods(); }
+        void load_all_mods();
+        void add_all_mods() { load_all_mods(); }
         void subapps_add_all();
         void add_all_subapps() { subapps_add_all(); }
         void clear_subapps() {
             subapps.clear();
             added_all_subapps = false;
+        }
+        bool is_subapp_initialized(std::string_view name) const;
+        template <typename T>
+        bool is_subapp_initialized() const {
+            return is_subapp_initialized(T::sname());
+        }
+        SubApp& load_subapp(std::string_view name);
+        template <typename T>
+        T& load_subapp() {
+            return static_cast<T&>(load_subapp(T::sname()));
+        }
+        void unload_subapp(std::string_view name);
+        template <typename T>
+        void unload_subapp() {
+            unload_subapp(T::sname());
         }
 
         template <typename T>
@@ -219,8 +251,7 @@ namespace triolib {
         template <typename T>
         T* find_subapp() {
             static_assert(std::is_base_of_v<SubApp, T>, "T must derive from SubApp");
-            subapps_add_all();
-            for (auto& subapp : subapps)
+            for (auto& [_, subapp] : subapps)
                 if (auto* result = dynamic_cast<T*>(subapp.get())) return result;
             return nullptr;
         }
@@ -231,7 +262,7 @@ namespace triolib {
             auto result = std::make_unique<T>();
             auto& reference = *result;
             result->application = this;
-            subapps.push_back(std::move(result));
+            subapps.emplace(T::sname(), std::move(result));
             return reference;
         }
 
@@ -283,6 +314,7 @@ namespace triolib {
 #define REGISTER_APPMOD(classname) \
     ;                              \
     run_before_main { ::triolib::register_appmod<classname>(); }
+#define REGISTER_APP_MOD(classname) REGISTER_APPMOD(classname)
 #define REGISTER_SUBAPP(classname) \
     ;                              \
     run_before_main { ::triolib::register_subapp<classname>(); }

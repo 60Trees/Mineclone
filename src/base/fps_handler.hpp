@@ -35,5 +35,5 @@ struct FpsHandler : triolib::AppModule {
     double seconds = 0;
     /// How many milliseconds since the start
     uint64_t ticks = 0;
-    bool does_go_before_init(const triolib::AppModule&) const override { return true; }
+    bool order_init_does_go_before(const triolib::AppModule*) const override { return true; }
 };
