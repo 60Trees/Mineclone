@@ -8,14 +8,14 @@
 #include <array>
 
 struct InputHandler : triolib::AppModule {
+    tClass;
+
     std::array<bool, SDL_SCANCODE_COUNT> held{};
     std::array<bool, SDL_SCANCODE_COUNT> pressed{};
     std::array<bool, SDL_SCANCODE_COUNT> repeated{};
 
     void digest_event(const SDL_Event& event) {
-        if (event.type != SDL_EVENT_KEY_DOWN &&
-            event.type != SDL_EVENT_KEY_UP)
-            return;
+        if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP) return;
 
         const auto scancode = event.key.scancode;
         if (scancode < 0 || scancode >= SDL_SCANCODE_COUNT) return;

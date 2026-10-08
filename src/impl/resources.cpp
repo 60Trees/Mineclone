@@ -30,6 +30,8 @@ CMRC_DECLARE(assets);
 using namespace std;
 
 struct ResourceHandlerImpl : ResourceHandler {
+    tClass;
+
     virtual void start_loading() override {
         console.debug << "Starting to load resources...";
 
@@ -61,8 +63,7 @@ struct ResourceHandlerImpl : ResourceHandler {
 
         auto end = chrono::high_resolution_clock::now();
         console.debug << "Finished loading resources, time="
-             << chrono::duration_cast<chrono::milliseconds>(end - start).count()
-             << "ms";
+                      << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms";
         has_loaded = true;
     }
 } REGISTER_MOD(ResourceHandlerImpl);
@@ -100,27 +101,22 @@ const nlohmann::json& ResourceHandlerImpl::Resource::json() const {
     return *json;
 }
 
-ResourceHandlerImpl::FilesystemSource::FilesystemSource(filesystem::path root)
-    : root(std::move(root)) {
+ResourceHandlerImpl::FilesystemSource::FilesystemSource(filesystem::path root) : root(std::move(root)) {
     if (!filesystem::exists(this->root))
-        throw runtime_error(
-            "Resource directory does not exist: " + this->root.string());
+        throw runtime_error("Resource directory does not exist: " + this->root.string());
 
     if (!filesystem::is_directory(this->root))
-        throw runtime_error(
-            "Resource source is not a directory: " + this->root.string());
+        throw runtime_error("Resource source is not a directory: " + this->root.string());
 }
 bool ResourceHandlerImpl::FilesystemSource::exists(string_view path) const {
     return filesystem::is_regular_file(root / filesystem::path(path));
 }
-vector<byte> ResourceHandlerImpl::FilesystemSource::read(
-    string_view path) const {
+vector<byte> ResourceHandlerImpl::FilesystemSource::read(string_view path) const {
     const auto full_path = root / filesystem::path(path);
 
     ifstream file(full_path, ios::binary | ios::ate);
 
-    if (!file)
-        throw runtime_error("Failed to open resource: " + full_path.string());
+    if (!file) throw runtime_error("Failed to open resource: " + full_path.string());
 
     const auto size = static_cast<size_t>(file.tellg());
 
@@ -129,14 +125,12 @@ vector<byte> ResourceHandlerImpl::FilesystemSource::read(
     vector<byte> data(size);
 
     if (size > 0) {
-        file.read(reinterpret_cast<char*>(data.data()),
-            static_cast<streamsize>(size));
+        file.read(reinterpret_cast<char*>(data.data()), static_cast<streamsize>(size));
     }
 
     return data;
 }
-void ResourceHandlerImpl::FilesystemSource::enumerate(
-    const function<void(string_view)>& callback) const {
+void ResourceHandlerImpl::FilesystemSource::enumerate(const function<void(string_view)>& callback) const {
     for (const auto& entry : filesystem::recursive_directory_iterator(root)) {
         if (!entry.is_regular_file()) continue;
 
@@ -153,14 +147,12 @@ struct ResourceHandlerImpl::ZipSource::Impl {
     vector<byte> buffer;
     string current_entry;
 };
-ResourceHandlerImpl::ZipSource::ZipSource(const filesystem::path& path)
-    : impl(make_unique<Impl>()) {
+ResourceHandlerImpl::ZipSource::ZipSource(const filesystem::path& path) : impl(make_unique<Impl>()) {
     impl->reader = mz_zip_reader_create();
 
     if (!impl->reader) throw runtime_error("Failed to create ZIP reader");
 
-    const int32_t result =
-        mz_zip_reader_open_file(impl->reader, path.string().c_str());
+    const int32_t result = mz_zip_reader_open_file(impl->reader, path.string().c_str());
 
     if (result != MZ_OK) {
         mz_zip_reader_delete(&impl->reader);
@@ -168,8 +160,7 @@ ResourceHandlerImpl::ZipSource::ZipSource(const filesystem::path& path)
         throw runtime_error("Failed to open ZIP/JAR: " + path.string());
     }
 }
-ResourceHandlerImpl::ZipSource::ZipSource(vector<byte> data)
-    : impl(make_unique<Impl>()) {
+ResourceHandlerImpl::ZipSource::ZipSource(vector<byte> data) : impl(make_unique<Impl>()) {
     impl->reader = mz_zip_reader_create();
 
     if (!impl->reader) throw runtime_error("Failed to create ZIP reader");
@@ -180,8 +171,7 @@ ResourceHandlerImpl::ZipSource::ZipSource(vector<byte> data)
 
     impl->buffer = std::move(data);
     const int32_t result = mz_zip_reader_open_buffer(impl->reader,
-        reinterpret_cast<const uint8_t*>(impl->buffer.data()),
-        static_cast<int32_t>(impl->buffer.size()), 0);
+        reinterpret_cast<const uint8_t*>(impl->buffer.data()), static_cast<int32_t>(impl->buffer.size()), 0);
 
     if (result != MZ_OK) {
         mz_zip_reader_delete(&impl->reader);
@@ -201,30 +191,26 @@ bool ResourceHandlerImpl::ZipSource::exists(string_view path) const {
 
     const string name(path);
 
-    const int32_t result =
-        mz_zip_reader_locate_entry(impl->reader, name.c_str(), 0);
+    const int32_t result = mz_zip_reader_locate_entry(impl->reader, name.c_str(), 0);
 
     return result == MZ_OK;
 }
 vector<byte> ResourceHandlerImpl::ZipSource::read(string_view path) const {
-    if (!impl || !impl->reader)
-        throw runtime_error("ZIP reader is not initialized");
+    if (!impl || !impl->reader) throw runtime_error("ZIP reader is not initialized");
 
     const string name(path);
 
     int32_t result = MZ_OK;
     if (impl->current_entry != name) {
         result = mz_zip_reader_locate_entry(impl->reader, name.c_str(), 0);
-        if (result != MZ_OK)
-            throw runtime_error("Resource does not exist in ZIP: " + name);
+        if (result != MZ_OK) throw runtime_error("Resource does not exist in ZIP: " + name);
     }
 
     mz_zip_file* file_info = nullptr;
 
     result = mz_zip_reader_entry_get_info(impl->reader, &file_info);
 
-    if (result != MZ_OK || !file_info)
-        throw runtime_error("Failed to get ZIP entry information: " + name);
+    if (result != MZ_OK || !file_info) throw runtime_error("Failed to get ZIP entry information: " + name);
 
     const size_t size = static_cast<size_t>(file_info->uncompressed_size);
 
@@ -234,13 +220,11 @@ vector<byte> ResourceHandlerImpl::ZipSource::read(string_view path) const {
 
     result = mz_zip_reader_entry_save_buffer(impl->reader, data.data(), size);
 
-    if (result != MZ_OK)
-        throw runtime_error("Failed to extract ZIP entry: " + name);
+    if (result != MZ_OK) throw runtime_error("Failed to extract ZIP entry: " + name);
 
     return data;
 }
-void ResourceHandlerImpl::ZipSource::enumerate(
-    const function<void(string_view)>& callback) const {
+void ResourceHandlerImpl::ZipSource::enumerate(const function<void(string_view)>& callback) const {
     if (!impl || !impl->reader) return;
 
     int32_t result = mz_zip_reader_goto_first_entry(impl->reader);
@@ -260,8 +244,7 @@ void ResourceHandlerImpl::ZipSource::enumerate(
     }
 }
 
-void ResourceHandlerImpl::Resources::load(
-    ResourceHandlerImpl::ResourceSource& source) {
+void ResourceHandlerImpl::Resources::load(ResourceHandlerImpl::ResourceSource& source) {
     source.enumerate([&](string_view path) {
         string clean_path;
         for (const auto& folder : whitelist) {
@@ -283,8 +266,7 @@ void ResourceHandlerImpl::Resources::load(
         }
     });
 }
-void ResourceHandlerImpl::Resources::load(
-    const variant<ZipFromFs, DirFromFs, ZipFromEmbed, DirFromEmbed>& source) {
+void ResourceHandlerImpl::Resources::load(const variant<ZipFromFs, DirFromFs, ZipFromEmbed, DirFromEmbed>& source) {
     visit(
         [this](const auto& source) {
             using Source = decay_t<decltype(source)>;
@@ -299,8 +281,7 @@ void ResourceHandlerImpl::Resources::load(
                 const auto fs = cmrc::assets::get_filesystem();
                 const auto file = fs.open(source.path);
                 vector<byte> data(file.size());
-                if (!data.empty())
-                    memcpy(data.data(), file.begin(), file.size());
+                if (!data.empty()) memcpy(data.data(), file.begin(), file.size());
                 ZipSource zip(std::move(data));
                 load(zip);
             } else if constexpr (is_same_v<Source, DirFromEmbed>) {
@@ -312,31 +293,24 @@ void ResourceHandlerImpl::Resources::load(
         },
         source);
 }
-bool ResourceHandlerImpl::Resources::contains(string_view path) const {
-    return resources.contains(string(path));
-}
-const ResourceHandlerImpl::Resource& ResourceHandlerImpl::Resources::get(
-    string_view path) const {
+bool ResourceHandlerImpl::Resources::contains(string_view path) const { return resources.contains(string(path)); }
+const ResourceHandlerImpl::Resource& ResourceHandlerImpl::Resources::get(string_view path) const {
     auto it = resources.find(string(path));
 
-    if (it == resources.end())
-        throw runtime_error("Resource not found: " + string(path));
+    if (it == resources.end()) throw runtime_error("Resource not found: " + string(path));
 
     return it->second;
 }
-const ResourceHandlerImpl::Resource* ResourceHandlerImpl::Resources::try_get(
-    string_view path) const {
+const ResourceHandlerImpl::Resource* ResourceHandlerImpl::Resources::try_get(string_view path) const {
     auto it = resources.find(string(path));
 
     if (it == resources.end()) return nullptr;
 
     return &it->second;
 }
-size_t ResourceHandlerImpl::Resources::size() const noexcept {
-    return resources.size();
-}
-const unordered_map<string, ResourceHandlerImpl::Resource>&
-ResourceHandlerImpl::Resources::get_resources() const noexcept {
+size_t ResourceHandlerImpl::Resources::size() const noexcept { return resources.size(); }
+const unordered_map<string, ResourceHandlerImpl::Resource>& ResourceHandlerImpl::Resources::get_resources()
+    const noexcept {
     return resources;
 }
 
@@ -348,32 +322,27 @@ ResourceHandlerImpl::Resource ResourceHandlerImpl::Resources::load_resource(
 
     switch (type) {
         case ResourceType::PNG: {
-            return Resource{
-                .type = ResourceType::PNG, .data = decode_png(data)};
+            return Resource{.type = ResourceType::PNG, .data = decode_png(data)};
         }
 
         case ResourceType::JSON: {
             const auto text = normalize_text(data);
 
-            return Resource{.type = ResourceType::JSON,
-                .data = nlohmann::json::parse(text)};
+            return Resource{.type = ResourceType::JSON, .data = nlohmann::json::parse(text)};
         }
 
         case ResourceType::Text: {
-            return Resource{
-                .type = ResourceType::Text, .data = normalize_text(data)};
+            return Resource{.type = ResourceType::Text, .data = normalize_text(data)};
         }
 
         case ResourceType::Binary: {
-            return Resource{
-                .type = ResourceType::Binary, .data = std::move(data)};
+            return Resource{.type = ResourceType::Binary, .data = std::move(data)};
         }
     }
 
     throw runtime_error("Unknown resource type");
 }
-ResourceHandlerImpl::ResourceType
-ResourceHandlerImpl::Resources::determine_type(string_view path) {
+ResourceHandlerImpl::ResourceType ResourceHandlerImpl::Resources::determine_type(string_view path) {
     const auto dot = path.find_last_of('.');
 
     if (dot == string_view::npos) return ResourceType::Binary;
@@ -385,10 +354,8 @@ ResourceHandlerImpl::Resources::determine_type(string_view path) {
     if (extension == "json" || extension == "mcmeta") return ResourceType::JSON;
 
     // Minecraft text formats.
-    if (extension == "txt" || extension == "mcfunction" ||
-        extension == "properties" || extension == "json5" ||
-        extension == "lang" || extension == "fsh" || extension == "vsh" ||
-        extension == "glsl" || extension == "wgsl")
+    if (extension == "txt" || extension == "mcfunction" || extension == "properties" || extension == "json5" ||
+        extension == "lang" || extension == "fsh" || extension == "vsh" || extension == "glsl" || extension == "wgsl")
         return ResourceType::Text;
 
     return ResourceType::Binary;
@@ -418,8 +385,7 @@ string ResourceHandlerImpl::Resources::normalize_text(span<const byte> data) {
     return output;
 }
 
-ResourceHandlerImpl::Image ResourceHandlerImpl::Resources::decode_png(
-    span<const byte> data) {
+ResourceHandlerImpl::Image ResourceHandlerImpl::Resources::decode_png(span<const byte> data) {
     if (data.empty()) throw runtime_error("Cannot decode empty PNG");
 
     int width = 0;
@@ -428,15 +394,11 @@ ResourceHandlerImpl::Image ResourceHandlerImpl::Resources::decode_png(
 
     const auto* input = reinterpret_cast<const stbi_uc*>(data.data());
 
-    stbi_uc* pixels = stbi_load_from_memory(
-        input, static_cast<int>(data.size()), &width, &height, &channels, 4);
+    stbi_uc* pixels = stbi_load_from_memory(input, static_cast<int>(data.size()), &width, &height, &channels, 4);
 
-    if (!pixels)
-        throw runtime_error(
-            string("Failed to decode PNG: ") + stbi_failure_reason());
+    if (!pixels) throw runtime_error(string("Failed to decode PNG: ") + stbi_failure_reason());
 
-    const size_t size =
-        static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+    const size_t size = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
 
     Image image;
 
@@ -451,25 +413,19 @@ ResourceHandlerImpl::Image ResourceHandlerImpl::Resources::decode_png(
 
     return image;
 }
-ResourceHandlerImpl::CMRCSource::CMRCSource(
-    cmrc::embedded_filesystem fs, filesystem::path root)
+ResourceHandlerImpl::CMRCSource::CMRCSource(cmrc::embedded_filesystem fs, filesystem::path root)
     : fs(std::move(fs)), root(root.generic_string()) {
-    while (!this->root.empty() && this->root.back() == '/')
-        this->root.pop_back();
+    while (!this->root.empty() && this->root.back() == '/') this->root.pop_back();
 }
 bool ResourceHandlerImpl::CMRCSource::exists(std::string_view path) const {
-    const auto full_path =
-        root.empty() ? string(path) : root + "/" + string(path);
+    const auto full_path = root.empty() ? string(path) : root + "/" + string(path);
     return fs.exists(full_path);
 }
 
-std::vector<std::byte> ResourceHandlerImpl::CMRCSource::read(
-    std::string_view path) const {
-    const std::string name =
-        root.empty() ? string(path) : root + "/" + string(path);
+std::vector<std::byte> ResourceHandlerImpl::CMRCSource::read(std::string_view path) const {
+    const std::string name = root.empty() ? string(path) : root + "/" + string(path);
 
-    if (!fs.exists(name))
-        throw std::runtime_error("CMRC resource does not exist: " + name);
+    if (!fs.exists(name)) throw std::runtime_error("CMRC resource does not exist: " + name);
 
     const auto file = fs.open(name);
 
@@ -482,16 +438,14 @@ std::vector<std::byte> ResourceHandlerImpl::CMRCSource::read(
     return data;
 }
 
-void ResourceHandlerImpl::CMRCSource::enumerate(
-    const std::function<void(std::string_view)>& callback) const {
+void ResourceHandlerImpl::CMRCSource::enumerate(const std::function<void(std::string_view)>& callback) const {
     std::function<void(std::string_view)> walk;
 
     walk = [&](std::string_view directory) {
         const string relative_directory(directory);
-        const string full_directory =
-            root.empty() || relative_directory.empty()
-                ? (root.empty() ? relative_directory : root)
-                : root + "/" + relative_directory;
+        const string full_directory = root.empty() || relative_directory.empty()
+                                          ? (root.empty() ? relative_directory : root)
+                                          : root + "/" + relative_directory;
         const auto dir = fs.open(full_directory);
 
         for (const auto& filename : dir) {

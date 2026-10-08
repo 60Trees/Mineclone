@@ -18,23 +18,22 @@ using namespace triolib;
 using namespace std;
 
 struct Game : Application {
+    tClass;
     Game() { name = "Mineclone"; }
     void init() override {
         Application::init();
-        ResourceHandler::ZipSource jar{
-            std::filesystem::path(mc_client_location())};
+        ResourceHandler::ZipSource jar{std::filesystem::path(mc_client_location())};
         const auto manifest = jar.read("META-INF/MANIFEST.MF");
-        console.debug << "Read JAR META-INF/MANIFEST.MF ("
-                  << manifest.size() << " bytes)";
+        console.debug << "Read JAR META-INF/MANIFEST.MF (" << manifest.size() << " bytes)";
 
         ResourceHandler::FilesystemSource files(SOURCE_DIR);
         const auto shader = files.read("assets/vert.glsl");
-        console.debug << "Read assets/vert.glsl (" << shader.size()
-                  << " bytes)";
+        console.debug << "Read assets/vert.glsl (" << shader.size() << " bytes)";
     }
 } REGISTER_APP(Game);
 
 struct RandomShi : AppModule {
+    tClass;
     ResourceHandler* rh;
     bool has_finished_loading = false;
     void init() override {
@@ -42,21 +41,19 @@ struct RandomShi : AppModule {
         assert(rh);
         rh->whitelist.insert("data");
         rh->whitelist.insert("assets");
-        rh->resource_origins.push_back({std::string(mc_client_location()),
-            ResourceHandler::ResourceOriginType::ZipFromFs});
+        rh->resource_origins.push_back(
+            {std::string(mc_client_location()), ResourceHandler::ResourceOriginType::ZipFromFs});
     }
     void loop() override {
         if (rh->has_loaded && !has_finished_loading) {
             has_finished_loading = true;
             console.debug << "Loaded " << rh->resources.size() << " resources.";
-            const auto* resource =
-                rh->resources.try_get("minecraft/gpu_warnlist.json");
+            const auto* resource = rh->resources.try_get("minecraft/gpu_warnlist.json");
             if (!resource)
                 throw runtime_error(
                     "Loaded resource is missing: "
                     "assets/minecraft/gpu_warnlist.json");
-            console.debug << "Read assets/minecraft/gpu_warnlist.json: "
-                 << resource->json().dump(2);
+            console.debug << "Read assets/minecraft/gpu_warnlist.json: " << resource->json().dump(2);
         }
     }
     void quit() override {}

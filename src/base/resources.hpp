@@ -16,23 +16,17 @@
 CMRC_DECLARE(assets);
 
 struct ResourceHandler : triolib::AppModule {
+    tClass;
     bool has_loaded = false;
     bool has_started_loading = false;
 
-    enum class ResourceOriginType {
-        ZipFromFs,
-        FolderFromFs,
-        ZipFromCmrc,
-        FolderFromCmrc
-    };
+    enum class ResourceOriginType { ZipFromFs, FolderFromFs, ZipFromCmrc, FolderFromCmrc };
     std::vector<std::pair<std::string, ResourceOriginType>> resource_origins;
     std::unordered_set<std::string> whitelist;
 
     virtual void start_loading() = 0;
 
-    bool does_go_after_init(const triolib::AppModule& other) const override {
-        return true;
-    }
+    bool does_go_after_init(const triolib::AppModule& other) const override { return true; }
 
     void init() override { start_loading(); }
     void loop() override {}
@@ -53,8 +47,7 @@ struct ResourceHandler : triolib::AppModule {
         }
     };
 
-    using ResourceData = std::variant<std::vector<std::byte>, std::string,
-        Image, nlohmann::json>;
+    using ResourceData = std::variant<std::vector<std::byte>, std::string, Image, nlohmann::json>;
 
     struct Resource {
         ResourceType type;
@@ -83,8 +76,7 @@ struct ResourceHandler : triolib::AppModule {
         [[nodiscard]]
         virtual std::vector<std::byte> read(std::string_view path) const = 0;
 
-        virtual void enumerate(
-            const std::function<void(std::string_view)>& callback) const = 0;
+        virtual void enumerate(const std::function<void(std::string_view)>& callback) const = 0;
     };
 
     class FilesystemSource final : public ResourceSource {
@@ -97,8 +89,7 @@ struct ResourceHandler : triolib::AppModule {
         [[nodiscard]]
         std::vector<std::byte> read(std::string_view path) const override;
 
-        void enumerate(const std::function<void(std::string_view)>& callback)
-            const override;
+        void enumerate(const std::function<void(std::string_view)>& callback) const override;
 
         private:
         std::filesystem::path root;
@@ -118,8 +109,7 @@ struct ResourceHandler : triolib::AppModule {
         [[nodiscard]]
         std::vector<std::byte> read(std::string_view path) const override;
 
-        void enumerate(const std::function<void(std::string_view)>& callback)
-            const override;
+        void enumerate(const std::function<void(std::string_view)>& callback) const override;
 
         private:
         struct Impl;
@@ -128,8 +118,7 @@ struct ResourceHandler : triolib::AppModule {
 
     class CMRCSource final : public ResourceSource {
         public:
-        explicit CMRCSource(
-            cmrc::embedded_filesystem fs, std::filesystem::path root = {});
+        explicit CMRCSource(cmrc::embedded_filesystem fs, std::filesystem::path root = {});
 
         [[nodiscard]]
         bool exists(std::string_view path) const override;
@@ -137,8 +126,7 @@ struct ResourceHandler : triolib::AppModule {
         [[nodiscard]]
         std::vector<std::byte> read(std::string_view path) const override;
 
-        void enumerate(const std::function<void(std::string_view)>& callback)
-            const override;
+        void enumerate(const std::function<void(std::string_view)>& callback) const override;
 
         private:
         cmrc::embedded_filesystem fs;
@@ -147,16 +135,14 @@ struct ResourceHandler : triolib::AppModule {
 
     class Resources {
         public:
-        using AtlasRect =
-            std::pair<glm::vec<2, unsigned int>, glm::vec<2, unsigned int>>;
+        using AtlasRect = std::pair<glm::vec<2, unsigned int>, glm::vec<2, unsigned int>>;
 
         struct Atlas {
             std::string name;
             Image image;
             std::unordered_map<std::string, AtlasRect> locations;
 
-            [[nodiscard]] const AtlasRect& operator[](
-                std::string_view path) const;
+            [[nodiscard]] const AtlasRect& operator[](std::string_view path) const;
         };
 
         // Resource names are stored without their whitelisted top-level folder.
@@ -181,8 +167,7 @@ struct ResourceHandler : triolib::AppModule {
         Resources() = default;
 
         void load(ResourceSource& source);
-        void load(const std::variant<ZipFromFs, DirFromFs, ZipFromEmbed,
-            DirFromEmbed>& source);
+        void load(const std::variant<ZipFromFs, DirFromFs, ZipFromEmbed, DirFromEmbed>& source);
 
         [[nodiscard]]
         bool contains(std::string_view path) const;
@@ -197,28 +182,21 @@ struct ResourceHandler : triolib::AppModule {
         std::size_t size() const noexcept;
 
         [[nodiscard]]
-        const std::unordered_map<std::string, Resource>& get_resources()
-            const noexcept;
+        const std::unordered_map<std::string, Resource>& get_resources() const noexcept;
 
-        [[nodiscard]] std::vector<std::string> list_files(
-            std::string_view directory) const;
-        [[nodiscard]] std::vector<std::string> list_pngs(
-            std::string_view directory, bool recursive = true) const;
-        [[nodiscard]] std::vector<std::string> list_jsons(
-            std::string_view directory, bool recursive = true) const;
-        [[nodiscard]] std::vector<std::string> list_dirs(
-            std::string_view directory) const;
+        [[nodiscard]] std::vector<std::string> list_files(std::string_view directory) const;
+        [[nodiscard]] std::vector<std::string> list_pngs(std::string_view directory, bool recursive = true) const;
+        [[nodiscard]] std::vector<std::string> list_jsons(std::string_view directory, bool recursive = true) const;
+        [[nodiscard]] std::vector<std::string> list_dirs(std::string_view directory) const;
         void define_atlas(std::string name, std::vector<std::string> paths);
         void load_all_atlases();
         [[nodiscard]] const Atlas* get_atlas(std::string_view name) const;
-        [[nodiscard]] std::optional<std::pair<const Image*, AtlasRect>>
-        find_texture(std::string_view path) const;
+        [[nodiscard]] std::optional<std::pair<const Image*, AtlasRect>> find_texture(std::string_view path) const;
 
         private:
         std::unordered_map<std::string, Resource> resources;
 
-        static Resource load_resource(
-            ResourceSource& source, std::string_view path);
+        static Resource load_resource(ResourceSource& source, std::string_view path);
 
         static ResourceType determine_type(std::string_view path);
 
@@ -226,8 +204,7 @@ struct ResourceHandler : triolib::AppModule {
 
         static Image decode_png(std::span<const std::byte> data);
 
-        std::vector<std::pair<std::string, std::vector<std::string>>>
-            atlas_definitions;
+        std::vector<std::pair<std::string, std::vector<std::string>>> atlas_definitions;
         std::unordered_map<std::string, Atlas> atlases;
     };
 

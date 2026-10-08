@@ -13,6 +13,7 @@
  * deltaTime.
  */
 struct SpeedMultiplier : triolib::AppModule {
+    tClass;
     void init() override {}
     void loop() override {}
     void quit() override {}
@@ -25,6 +26,7 @@ struct SpeedMultiplier : triolib::AppModule {
 };
 
 struct FpsHandler : triolib::AppModule {
+    tClass;
     /// How many seconds elapsed since the previous frame
     double dt = 0;
     /// How many milliseconds elapsed since the previous frame
@@ -33,7 +35,5 @@ struct FpsHandler : triolib::AppModule {
     double seconds = 0;
     /// How many milliseconds since the start
     uint64_t ticks = 0;
-    bool does_go_before_init(const triolib::AppModule&) const override {
-        return true;
-    }
+    bool does_go_before_init(const triolib::AppModule&) const override { return true; }
 };

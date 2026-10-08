@@ -80,9 +80,7 @@ struct Registerable {
         auto retval = resources.size();
         while (resources.contains(retval)) retval++;
         if (retval == RegistryNull)
-            throw std::runtime_error("Registry " + regid + " is full (" +
-                                     std::to_string(RegistryNull) +
-                                     " entries)");
+            throw std::runtime_error("Registry " + regid + " is full (" + std::to_string(RegistryNull) + " entries)");
         return retval;
     }
 
@@ -95,21 +93,21 @@ struct Registerable {
     Identifier regid;
 };
 
-extern std::map<RawRegistryEntry, RegistryEntry* (*)()>
-    registry_entry_constructors;
+extern std::map<RawRegistryEntry, RegistryEntry* (*)()> registry_entry_constructors;
 extern std::map<Identifier, std::unique_ptr<Registerable>> raw_registries;
 
 /**
  * @brief A collection of registries.
  * Example of adding a registry:
  * ```cpp
- * struct Item : triolib::AppModule, Registerable {
+ * struct Item : triolib::AppModule, Registerable { tClass;
  *     void init() override {
  *         parent->get<RegistryList>().registries["minecraft:item"] =
  *     }
  * }
  */
 struct RegistryList : triolib::AppModule {
+    tClass;
     void init() override { load_all(); }
     void loop() override {}
     void quit() override { unload_all(); }
@@ -127,8 +125,7 @@ struct RegistryList : triolib::AppModule {
     }
 
     /// Adds an owned registry to the list of registries.
-    virtual void add_registerable(
-        std::unique_ptr<Registerable> reg, Identifier regid) {
+    virtual void add_registerable(std::unique_ptr<Registerable> reg, Identifier regid) {
         if (!reg) throw std::invalid_argument("Cannot add a null registry.");
         auto* raw = reg.get();
         owned_registries.push_back(std::move(reg));
@@ -142,9 +139,7 @@ struct RegistryList : triolib::AppModule {
     std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
     std::vector<std::unique_ptr<Registerable>> owned_registries;
 
-    bool does_go_after_init(const triolib::AppModule& other) const override {
-        return true;
-    }
+    bool does_go_after_init(const triolib::AppModule& other) const override { return true; }
 
     /// @note Should be safe to call multiple times
     virtual void unload_all() = 0;
@@ -169,10 +164,8 @@ struct RegistryList : triolib::AppModule {
  * RegistryList::load_all() or
  * \ref RegistryList::reload_all() is called.
  */
-#define REGISTER(classname, resid, regid)                                      \
-    ;                                                                          \
-    run_before_main {                                                          \
-        registry_entry_constructors[{resid, regid}] = []() -> RegistryEntry* { \
-            return new classname();                                            \
-        };                                                                     \
+#define REGISTER(classname, resid, regid)                                                                 \
+    ;                                                                                                     \
+    run_before_main {                                                                                     \
+        registry_entry_constructors[{resid, regid}] = []() -> RegistryEntry* { return new classname(); }; \
     }

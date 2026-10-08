@@ -14,6 +14,6 @@ BreakBeforeBraces: Attach
 AlignArrayOfStructures: None
 PointerAlignment: Left
 ReferenceAlignment: Left
-ColumnLimit: 80
+ColumnLimit: 120
 
 SortIncludes: false

@@ -4,6 +4,8 @@
 #include <triolib.hpp>
 
 struct Poller : triolib::AppModule {
+    tClass;
+
     void init() override {}
     void loop() override {
         time_since_last_poll += parent->get<FpsHandler>().dt;
