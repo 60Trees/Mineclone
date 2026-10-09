@@ -192,6 +192,13 @@ namespace triolib {
         T& get_subapp() {
             return static_cast<T&>(get_subapp(T::sname()));
         }
+        template <typename T>
+        T* get_subapp_ptr() {
+            SubApp* subapp = subapps[T::sname()].get();
+            if (!subapp) return nullptr;
+            return dynamic_cast<T*>(subapp);
+        }
+
         void unload_subapp(std::string_view name);
         template <typename T>
         void unload_subapp() {

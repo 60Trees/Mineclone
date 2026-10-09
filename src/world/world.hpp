@@ -115,7 +115,9 @@ struct World : triolib::SubApp {
     /// snapped backwards that amount, the offset
     /// gets added by that amount and all World::SnapHandlers
     /// get the callback.
-    /// For example: Center goes above
+    ///
+    /// For example: Center goes above y=1000, everything moves 1000 units
+    /// down, offset.y += 1000
     Camera camera;
 
     struct Module : triolib::Module {
