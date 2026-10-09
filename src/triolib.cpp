@@ -1,4 +1,5 @@
 #include "triolib.hpp"
+#include <algorithm>
 #include "logger.hpp"
 
 namespace triolib {
@@ -43,9 +44,6 @@ namespace triolib {
                 "Cannot register a null application module factory.");
         appmod_factories().push_back(factory);
     }
-    void register_subapp(SubAppFactory factory) {
-        register_subapp({}, factory);
-    }
     void register_subapp(std::string name, SubAppFactory factory) {
         if (!factory)
             throw std::runtime_error("Cannot register a null subapp factory.");
@@ -68,7 +66,9 @@ namespace triolib {
             if (!mod)
                 throw std::runtime_error(
                     "Registered module factory returned nullptr.");
-            if (!contains_type(mods, typeid(*mod))) {
+            const auto* mod_ptr = mod.get();
+            const std::type_info& mod_type = typeid(*mod_ptr);
+            if (!contains_type(mods, mod_type)) {
                 mod->parent = this;
                 mods.push_back(std::move(mod));
             }
@@ -111,30 +111,14 @@ namespace triolib {
             if (!mod)
                 throw std::runtime_error(
                     "Registered application module factory returned nullptr.");
-            if (!contains_type(mods, typeid(*mod))) {
+            const auto* mod_ptr = mod.get();
+            const std::type_info& mod_type = typeid(*mod_ptr);
+            if (!contains_type(mods, mod_type)) {
                 mod->parent = this;
                 mods.push_back(std::move(mod));
             }
         }
         added_all_mods = true;
-    }
-
-    void Application::subapps_add_all() {
-        if (added_all_subapps) return;
-        if (before_main)
-            throw std::logic_error("Cannot add subapps before main.");
-        for (const auto& [name, factory] : subapp_factories()) {
-            auto subapp = factory();
-            if (!subapp)
-                throw std::runtime_error(
-                    "Registered subapp factory returned nullptr.");
-            const auto key = name.empty() ? subapp->vname() : name;
-            if (!subapps.contains(key)) {
-                subapp->application = this;
-                subapps.emplace(key, std::move(subapp));
-            }
-        }
-        added_all_subapps = true;
     }
 
     void Application::init() {
@@ -175,11 +159,6 @@ namespace triolib {
         };
         std::stable_sort(init_mod_order.begin(), init_mod_order.end(), init_order);
         std::stable_sort(loop_mod_order.begin(), loop_mod_order.end(), loop_order);
-        this->loop_order = loop_mod_order;
-    }
-
-    bool Application::is_subapp_initialized(std::string_view name) const {
-        return subapps.contains(std::string{name});
     }
 
     SubApp& Application::load_subapp(std::string_view name) {
@@ -197,6 +176,14 @@ namespace triolib {
             return result;
         }
         throw std::out_of_range("Subapp is not registered: " + key);
+    }
+
+    SubApp& Application::get_subapp(std::string_view name) {
+        const auto key = std::string{name};
+        const auto it = subapps.find(key);
+        if (it == subapps.end() || !it->second)
+            throw std::logic_error("Application subapp does not exist: " + key);
+        return *it->second;
     }
 
     void Application::unload_subapp(std::string_view name) {

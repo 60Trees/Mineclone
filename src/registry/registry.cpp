@@ -7,7 +7,7 @@ using namespace std;
 using namespace triolib;
 
 struct RegistryListImpl : RegistryList {
-    tClass;
+    tImplClass(RegistryList);
     double init_order_priority() const override { return 100.0; }
     bool order_init_does_go_before(const triolib::AppModule*) const override { return true; }
 

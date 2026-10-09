@@ -6,7 +6,7 @@ using namespace std;
 using namespace triolib;
 
 struct MainGlRendererImpl : MainGlRenderer {
-    tClass;
+    tImplClass(MainGlRenderer);
 
     MainGlRendererImpl() : MainGlRenderer() {}
     glm::vec<2, int> size;
@@ -50,7 +50,12 @@ struct MainGlRendererImpl : MainGlRenderer {
                        << " extensions.";
 
         // Initialize all the renderers
-        SubApp::init();
+        load_all_mods();
+        for (auto* mod : init_mod_order) {
+            GlRenderer* glmod = dynamic_cast<GlRenderer*>(mod);
+            if (glmod) glmod->main_renderer = this;
+            mod->init();
+        }
     }
 
     void loop() override {

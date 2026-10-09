@@ -30,7 +30,7 @@ CMRC_DECLARE(assets);
 using namespace std;
 
 struct ResourceHandlerImpl : ResourceHandler {
-    tClass;
+    tImplClass(ResourceHandler);
 
     virtual void start_loading() override {
         console.debug << "Starting to load resources...";

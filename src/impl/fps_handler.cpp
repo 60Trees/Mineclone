@@ -19,7 +19,7 @@ inline double normalize(const double input) {
 }
 
 struct FpsHandlerImpl : FpsHandler {
-    tClass;
+    tImplClass(FpsHandler);
     std::vector<SpeedMultiplier*> slomos;
 
     void init() override { slomos = parent->get_mods<SpeedMultiplier>(); }

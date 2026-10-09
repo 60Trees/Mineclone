@@ -19,3 +19,9 @@ struct MainGlRenderer : MainRenderer {
     virtual bool has_extension(std::string_view ext) const = 0;
     bool quit_called = false;
 };
+
+struct GlRenderer : Renderer {
+    tClass;
+    MainGlRenderer* main_renderer = nullptr;
+};
+

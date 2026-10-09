@@ -102,7 +102,7 @@ extern std::map<Identifier, std::unique_ptr<Registerable>> raw_registries;
  * ```cpp
  * struct Item : triolib::AppModule, Registerable { tClass;
  *     void init() override {
- *         parent->get<RegistryList>().registries["minecraft:item"] =
+ *         parent->getmod<RegistryList>().registries["minecraft:item"] =
  *     }
  * }
  */

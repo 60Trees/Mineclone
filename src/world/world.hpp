@@ -92,6 +92,15 @@ struct BigPos {
     BigInt x = 0, y = 0, z = 0;
 };
 
+/**
+ * @brief A bubble of the world, which contains chunks and a
+ * BigInt offset (BigInts are effectively infinite and cannot wrap).
+ *
+ * @detail In singleplayer, this is the entire world.
+ * In multiplayer, some tweaks would have to be made to make it work
+ * (i.e multiple bubbles, some players can join bubbles, etc) and the
+ * only thing being sent to the client is this bubble.
+ */
 struct World : triolib::SubApp {
     tClass;
     std::unordered_map<Vec3i, Chunk, Vec3i::Vec3iHash> chunks;
@@ -119,7 +128,7 @@ struct World : triolib::SubApp {
             world = dynamic_cast<World*>(parent);
 
             tassertmsgerr(world,
-                vname() + " must be a module belonging to World, not " + std::string(typeid(*parent).name()),
+                vname() + " must be a module belonging to WorldBubble, not " + std::string(typeid(*parent).name()),
                 logic_error);
         }
     };

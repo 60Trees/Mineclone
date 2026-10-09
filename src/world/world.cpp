@@ -8,7 +8,7 @@ using namespace std;
 using namespace triolib;
 
 struct WorldImpl : World, Poller {
-    tClass;
+    tImplClass(World);
     WorldImpl() : Poller(5) {}
 
     void init() override { SubApp::init(); }

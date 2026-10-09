@@ -23,4 +23,5 @@ struct EventPoller : AppModule {
 } REGISTER_MOD(EventPoller);
 
 struct KeyboardInput : InputHandler {
+    tImplClass(InputHandler);
 } REGISTER_MOD(KeyboardInput);

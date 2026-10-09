@@ -8,7 +8,6 @@
 #include <base/input_handler.hpp>
 #include <base/resources.hpp>
 #include <cmrc/cmrc.hpp>
-#include <filesystem>
 CMRC_DECLARE(assets);
 
 extern "C" const char* mc_client_location();
@@ -23,8 +22,8 @@ struct Game : Application {
     void init() override {
         Application::init();
 
-        load_subapp("MainGlRendererImpl");
-        load_subapp("WorldImpl");
+        load_subapp("MainGlRenderer");
+        load_subapp("World");
     }
 } REGISTER_APP(Game);
 
@@ -33,7 +32,7 @@ struct RandomShi : AppModule {
     ResourceHandler* rh;
     bool has_finished_loading = false;
     void init() override {
-        rh = &parent->get<ResourceHandler>();
+        rh = &parent->getmod<ResourceHandler>();
         assert(rh);
         rh->whitelist.insert("data");
         rh->whitelist.insert("assets");

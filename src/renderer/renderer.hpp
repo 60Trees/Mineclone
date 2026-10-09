@@ -7,7 +7,7 @@
 #include <world/world.hpp>
 
 struct MainRenderer : triolib::SubApp {
-    tSubApp(MainRenderer);
+    tClass;
     SDL_Window* window = nullptr;
 
     virtual const glm::vec<2, int>& window_size() const = 0;
