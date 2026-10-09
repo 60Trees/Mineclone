@@ -6,7 +6,6 @@
 #include <triolib.hpp>
 
 #include <base/input_handler.hpp>
-#include <base/renderer.hpp>
 #include <base/resources.hpp>
 #include <cmrc/cmrc.hpp>
 #include <filesystem>
@@ -24,15 +23,8 @@ struct Game : Application {
     void init() override {
         Application::init();
 
-        load_subapp("WindowImpl");
+        load_subapp("MainGlRendererImpl");
         load_subapp("WorldImpl");
-        ResourceHandler::ZipSource jar{std::filesystem::path(mc_client_location())};
-        const auto manifest = jar.read("META-INF/MANIFEST.MF");
-        console.debug << "Read JAR META-INF/MANIFEST.MF (" << manifest.size() << " bytes)";
-
-        ResourceHandler::FilesystemSource files(SOURCE_DIR);
-        const auto shader = files.read("assets/vert.glsl");
-        console.debug << "Read assets/vert.glsl (" << shader.size() << " bytes)";
     }
 } REGISTER_APP(Game);
 

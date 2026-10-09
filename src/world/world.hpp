@@ -114,13 +114,13 @@ struct World : triolib::SubApp {
 
         World* world = nullptr;
         void init() override {
-            tassertmsgerr(
-                parent, "When initializing " + vname() + ", `parent` is null", logic_error);
+            tassertmsgerr(parent, "When initializing " + vname() + ", `parent` is null", logic_error);
 
             world = dynamic_cast<World*>(parent);
 
-            tassertmsgerr(
-                world, vname() + " must be a module belonging to World, not " + std::string(typeid(*parent).name()), logic_error);
+            tassertmsgerr(world,
+                vname() + " must be a module belonging to World, not " + std::string(typeid(*parent).name()),
+                logic_error);
         }
     };
 

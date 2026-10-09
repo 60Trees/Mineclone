@@ -27,7 +27,7 @@ std::string_view load_asset(const std::string& path) {
         task;                                                             \
     } catch (std::exception & e) {                                        \
         main_err << "Error " << typeid(e).name() << " while " << taskname \
-                 << ": " << e.what();                                     \
+                 << ":\n" << e.what();                                     \
         {                                                                 \
             onerr;                                                        \
         }                                                                 \
