@@ -90,6 +90,7 @@ int main(int argc, char** argv) {
     main_out << "Looping";
     try_smth(loop(), "looping", { quit(); });
 
+    quit();
     main_out << "Goodbye (:";
     return 0;
 }

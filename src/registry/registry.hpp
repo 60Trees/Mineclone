@@ -9,6 +9,7 @@
  * - Reg / Registry: a collection of IDs, e.g. items or blocks
  * - RegEntry / RegistryEntry / Res / Resource: an entry in a registry, e.g.
  * stone or oak log
+ * - Index / Idx: A number associated with a resource. E.g grass = 0, dirt = 1, etc
  *
  * These names will be mixed in the code, e.g RegID = the ID of a registry,
  * ResID = the ID of a resource, etc.
@@ -28,6 +29,7 @@ using IdentifierView = std::string_view;
 using RegistryUint = uint16_t;
 constexpr static auto RegistryNull = std::numeric_limits<RegistryUint>::max();
 
+/// e.g `resid=minecraft:stone`, `regid=minecraft:block`
 struct RawRegistryEntry {
     /**
      * @brief The identifier of the registry entry
@@ -40,111 +42,130 @@ struct RawRegistryEntry {
      * for example, `"minecraft:item"` or `"minecraft:worldgen/biome"`
      */
     Identifier regid;
+
+    RawRegistryEntry(Identifier resid, Identifier regid) : resid(resid), regid(regid) {}
 };
 
 /**
- * @brief A registry entry, which is a resource in a registry.
- * It is a base class for all registry entries.
+ * @brief Contains a \ref RawRegistryEntry and a unique index.
+ * @note Is virtual
  */
-struct RegistryEntry : RawRegistryEntry {
-    friend struct Registry;
+struct RegistryEntry {
     virtual ~RegistryEntry() = default;
 
     /**
-     * @brief A number associated with the registry entry.
-     * It is unique within the registry.
+     * @brief The identifier of the resource entry
+     * for example, `"minecraft:stone"` or `"minecraft:oak_log"`
      */
-    RegistryUint regindex;
+    Identifier resid;
+
+    /**
+     * @brief A number associated with the resource. E.g grass = 0, dirt = 1, etc
+     * @detail
+     * It is unique within the registry and will be automatically
+     * assigned when loaded.
+     * @note Do not touch plz
+     */
+    RegistryUint resindex;
 };
+
+extern std::map<RawRegistryEntry, std::unique_ptr<RegistryEntry> (*)()> registry_entry_constructors;
+extern std::vector<std::string> registry_entry_errors;
+
+/// Resource entry
+#define RESENTRY(classname, __resid, __regid)                                                                  \
+    ;                                                                                                          \
+    run_before_main {                                                                                          \
+        /**                                                                                                    \
+         *  TODO: Replace warn with a priority system (double).                                                \
+         *  Higher priority = overrides potential lower priority.                                              \
+         */                                                                                                    \
+        if (registry_entry_constructors.contains({__resid, __regid})) {                                        \
+            registry_entry_errors.push_back(                                                                   \
+                "Duplicate registry entry: " + std::string(__resid) + " in registry " + std::string(__regid)); \
+        }                                                                                                      \
+        registry_entry_constructors[{__resid, __regid}] = []() -> std::unique_ptr<RegistryEntry> {             \
+            auto retval = std::make_unique<classname>();                                                       \
+            retval->resid = __resid;                                                                           \
+            retval->regid = __regid;                                                                           \
+        };                                                                                                     \
+    }
 
 /**
  * @brief A registry, which is a collection of registry entries.
  * It is a base class for all registries.
+ * @note Call `Registry::init()` to load all the entries in the registry.
+ * Also call `Registry::quit()` to unload all the entries in the registry.
+ *
+ * No looping allowed.
  */
-struct Registerable {
-    virtual ~Registerable() = default;
+struct Registry : triolib::Module {
+    tClass;
+    virtual ~Registry() = default;
 
-    std::map<RegistryUint, std::unique_ptr<RegistryEntry>> resources;
+    /// e.g `minecraft:block`
+    std::string regid;
 
-    RegistryUint get_id_of(IdentifierView id) const {
-        for (const auto& [index, entry] : resources)
-            if (entry->resid == id) return index;
-        return RegistryNull;
-    }
+    std::map<RegistryUint, std::unique_ptr<RegistryEntry>> entries;
+    virtual std::string get_regid() const = 0;
 
     /**
-     * @brief Get the next available ID in the registry.
-     * @return The next available ID.
+     * @brief Makes certain IDs reserved.
+     *
+     * @detail
+     * For example, if a world saves all `minecraft:grass` blocks as `2`,
+     * then it will be added to this map in a sort of reservation system.
+     * So the only thing allowed to be `2` is `minecraft:grass` and nothing else.
      */
-    inline RegistryUint get_empty_id() const {
-        auto retval = resources.size();
-        while (resources.contains(retval)) retval++;
-        if (retval == RegistryNull)
-            throw std::runtime_error("Registry " + regid + " is full (" + std::to_string(RegistryNull) + " entries)");
-        return retval;
-    }
+    std::map<Identifier, RegistryUint> residx_reservations{};
 
-    void add_resource(std::unique_ptr<RegistryEntry> entry) {
-        RegistryUint index = get_empty_id();
-        entry->regindex = index;
-        resources[index] = std::move(entry);
-    }
+    /**
+     * @brief Gets the next empty index for a given resource ID.
+     * @param resid The resource ID to get the next empty index for.
+     * @return The next empty index for the given resource ID.
+     * @throws std::logic_error if the registry is full or if the resource ID is already taken.
+     */
+    RegistryUint get_empty_index(std::string resid) const;
 
-    Identifier regid;
+    void init() override {
+        quit();
+        for (auto& [raw, constructor] : registry_entry_constructors) {
+            if (raw.regid == this->regid) {
+                auto entry = constructor();
+                auto i = get_empty_index(entry->resid);
+                entry->resindex = i;
+                entries[i] = std::move(entry);
+            }
+        }
+    }
+    void loop() override final {}
+    void quit() override { entries.clear(); }
 };
 
-extern std::map<RawRegistryEntry, RegistryEntry* (*)()> registry_entry_constructors;
-extern std::map<Identifier, std::unique_ptr<Registerable>> raw_registries;
+#define registryClass(_regid)                                \
+    tClass;                                                  \
+    static std::string static_get_regid() { return _regid; } \
+    std::string get_regid() const override { return _regid; }
+
+#define REGISTRY(classname) REGISTER_MOD(classname, RegistryList)
 
 /**
  * @brief A collection of registries.
- * Example of adding a registry:
- * ```cpp
- * struct Item : triolib::AppModule, Registerable { tClass;
- *     void init() override {
- *         parent->getmod<RegistryList>().registries["minecraft:item"] =
- *     }
- * }
  */
-struct RegistryList : triolib::AppModule {
+struct RegistryList : triolib::SubApp {
     tClass;
-    void init() override { load_all(); }
-    void loop() override {}
-    void quit() override { unload_all(); }
 
-    /// The list or registries (i.e items, blocks, etc)
-    std::map<Identifier, Registerable*> registries;
+    void init() override = 0;
+    void loop() final override {}
+    void quit() override = 0;
 
-    /// Adds a non-owned registry to the list of registries.
-    /// Best used for AppModules.
-    ///
-    /// @note The registry must be valid for the lifetime of the RegistryList.
-    virtual void add_registerable(Registerable* reg, Identifier regid) {
-        if (!reg) throw std::invalid_argument("Cannot add a null registry.");
-        registries[std::move(regid)] = reg;
-    }
+    std::map<RawRegistryEntry, RegistryUint> residx_reservations{};
+    std::vector<Registry*> registries;
 
-    /// Adds an owned registry to the list of registries.
-    virtual void add_registerable(std::unique_ptr<Registerable> reg, Identifier regid) {
-        if (!reg) throw std::invalid_argument("Cannot add a null registry.");
-        auto* raw = reg.get();
-        owned_registries.push_back(std::move(reg));
-        registries[std::move(regid)] = raw;
-    }
-
-    /**
-     * @brief Describes if any resource needs a specific uint
-     * @note This is only considered when loading / reloading.
-     */
-    std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
-    std::vector<std::unique_ptr<Registerable>> owned_registries;
-
-    bool order_init_does_go_after(const triolib::AppModule*) const override { return true; }
-
-    /// @note Should be safe to call multiple times
+    /// @note Safe to call multiple times
     virtual void unload_all() = 0;
 
-    /// @note Not safe to call multiple times
+    /// @note Safe to call multiple times
     virtual void load_all() = 0;
 
     /// @note Safe to call multiple times
@@ -153,19 +174,3 @@ struct RegistryList : triolib::AppModule {
         load_all();
     }
 };
-
-/**
- * @brief Registers a resource with a registry.
- *
- * @param classname The class of the resource to register. Must extend off
- * `RegistryEntry` and have a default constructor.
- *
- * @note The resource will be constructed every time \ref
- * RegistryList::load_all() or
- * \ref RegistryList::reload_all() is called.
- */
-#define REGISTER(classname, resid, regid)                                                                 \
-    ;                                                                                                     \
-    run_before_main {                                                                                     \
-        registry_entry_constructors[{resid, regid}] = []() -> RegistryEntry* { return new classname(); }; \
-    }

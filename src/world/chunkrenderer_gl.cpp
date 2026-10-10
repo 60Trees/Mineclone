@@ -2,6 +2,7 @@
 #include <opengl.hpp>
 #include "world.hpp"
 #include <renderer/glrenderer.hpp>
+#include <structures/assets/models/block.hpp>
 
 #include <span>
 #include <vector>
@@ -55,13 +56,6 @@ struct WorldRenderer : World::Module {
             fragmentShader.source_from_strview(fragmentShaderSource);
             fragmentShader.compile();
 
-            GLint vertexStatus = GL_FALSE;
-            GLint fragmentStatus = GL_FALSE;
-            glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &vertexStatus);
-            glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &fragmentStatus);
-            console.debug << "Vertex shader compiled: " << (vertexStatus == GL_TRUE);
-            console.debug << "Fragment shader compiled: " << (fragmentStatus == GL_TRUE);
-
             shaderProgram.create();
             shaderProgram.attach(vertexShader);
             shaderProgram.attach(fragmentShader);
@@ -71,8 +65,8 @@ struct WorldRenderer : World::Module {
 
         vao.create();
         vao.bind();
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-        glEnableVertexAttribArray(0);
+        vao.vertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), 0);
+        vao.enableAttribute(0);
     }
 
     void loop() override {

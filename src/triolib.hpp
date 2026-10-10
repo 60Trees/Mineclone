@@ -48,7 +48,10 @@ constexpr static BuildType build_type = static_cast<BuildType>(BUILD_TYPE);
 #define __tImplClass(parent) \
     inline static std::string sname() noexcept { return parent::sname(); }
 
-#define tClass __tClass public:
+#define tClass \
+    public:    \
+    __tClass
+
 #define tImplClass(parent) __tImplClass(parent) public:
 
 namespace triolib {

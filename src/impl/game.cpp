@@ -27,7 +27,7 @@ struct Game : Application {
     }
 } REGISTER_APP(Game);
 
-struct RandomShi : AppModule {
+struct GameResourceLoader : AppModule {
     tClass;
     ResourceHandler* rh;
     bool has_finished_loading = false;
@@ -52,4 +52,4 @@ struct RandomShi : AppModule {
         }
     }
     void quit() override {}
-} REGISTER_MOD(RandomShi);
+} REGISTER_MOD(GameResourceLoader);
