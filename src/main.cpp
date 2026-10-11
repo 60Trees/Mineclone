@@ -22,16 +22,16 @@ std::string_view load_asset(const std::string& path) {
     return {file.begin(), file.size()};
 }
 
-#define try_smth(task, taskname, onerr)                                   \
-    try {                                                                 \
-        task;                                                             \
-    } catch (std::exception & e) {                                        \
-        main_err << "Error " << typeid(e).name() << " while " << taskname \
-                 << ":\n" << e.what();                                     \
-        {                                                                 \
-            onerr;                                                        \
-        }                                                                 \
-        throw;                                                            \
+#define try_smth(task, taskname, onerr)                                                         \
+    try {                                                                                       \
+        task;                                                                                   \
+    } catch (std::exception & e) {                                                              \
+        main_err << "Error " << typeid(e).name() << " while " << taskname << ":\n" << e.what(); \
+        {                                                                                       \
+            onerr;                                                                              \
+        }                                                                                       \
+        main_err << "Goodbye ):";                                                               \
+        throw;                                                                                  \
     }
 
 bool before_main = true;
@@ -59,8 +59,7 @@ int main(int argc, char** argv) {
                 }
                 app_ptr->loop();
             },
-            app.get(), 0 /* let the browser drive fps via rAF */,
-            1 /* simulate infinite loop */
+            app.get(), 0 /* let the browser drive fps via rAF */, 1 /* simulate infinite loop */
         );
         // </AI>
 #else

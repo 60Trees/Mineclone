@@ -183,7 +183,7 @@ struct World : triolib::SubApp {
 
     BigPos offset;
 
-    double snap_back_threshold = 1000;
+    double snap_back_threshold = 10000000;
     /// If any value in the center ever goes above
     /// the `snap_back_threshold`, then everything gets
     /// snapped backwards that amount, the offset

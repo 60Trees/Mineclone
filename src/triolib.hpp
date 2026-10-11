@@ -27,6 +27,8 @@ enum BuildType : unsigned char {
 };
 constexpr static BuildType build_type = static_cast<BuildType>(BUILD_TYPE);
 
+#define debug_only if constexpr (::build_type == ::Debug)
+
 #define __tClass                                                 \
     /**                                                          \
      * Static name                                               \
@@ -201,6 +203,20 @@ namespace triolib {
             if (!subapp) return nullptr;
             return dynamic_cast<T*>(subapp);
         }
+        template <typename T>
+        T* get_subapp_ptr(const std::string& subappname) {
+            SubApp* subapp = subapps[subappname].get();
+            if (!subapp) return nullptr;
+            return dynamic_cast<T*>(subapp);
+        }
+        template <typename T>
+        T& get_subapp(const std::string& subappname) {
+            SubApp* subapp = get_subapp_ptr<T>(subappname);
+            if (!subapp) throw std::logic_error("Application subapp does not exist: " + subappname);
+            T* retval = dynamic_cast<T*>(subapp);
+            if (!retval) throw std::logic_error("Application subapp " + subappname + " (of type " + subapp->vname() + ") is not of type " + T::sname());
+            return *retval;
+        }
 
         void unload_subapp(std::string_view name);
         template <typename T>
@@ -275,6 +291,16 @@ namespace triolib {
     do {                                                                                 \
         if (!(to_check)) throw std::runtime_error("Assert `" #to_check "` has failed."); \
     } while (0)
+
+#if BUILD_TYPE <= BUILD_TYPE_RELWITHDEBINFO
+#    define tassume(to_check, msg)     \
+        do {                           \
+            tassertmsg(to_check, msg); \
+            [[assume(to_check)]];      \
+        } while (0)
+#else
+#    define tassume(to_check, msg) [[assume(to_check)]]
+#endif
 
 extern struct Console {
     bool enabled;

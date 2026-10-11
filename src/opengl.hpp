@@ -432,6 +432,7 @@ namespace opengl {
             if (!initialized) return;
             initialized = false;
         }
+        inline void generateMipmap() const { glGenerateMipmap(GL_TEXTURE_2D); }
         inline void bind() const { glBindTexture(GL_TEXTURE_2D, id); }
     };
 

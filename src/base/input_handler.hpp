@@ -3,50 +3,40 @@
  * @version 1.0.0
  */
 
-#include <SDL3/SDL_events.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_scancode.h>
+#include <cmath>
 #include <triolib.hpp>
-#include <array>
 
-struct InputHandler : triolib::AppModule {
+struct ScancodeKeyState {
+    bool pressed = false;
+    /// 0 = this frame, >0 = how many seconds ago
+    float duration = INFINITY;
+    inline operator bool() const { return pressed; }
+
+    inline bool pushed() const { return pressed; }
+    inline bool just_pressed() const { return pressed && duration == 0.0; }
+    inline bool just_released() const { return !pressed && duration == 0.0; }
+};
+
+struct EventDigester : triolib::AppModule {
     tClass;
-
-    std::array<bool, SDL_SCANCODE_COUNT> held{};
-    std::array<bool, SDL_SCANCODE_COUNT> pressed{};
-    std::array<bool, SDL_SCANCODE_COUNT> repeated{};
-
-    void digest_event(const SDL_Event& event) {
-        if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP) return;
-
-        const auto scancode = event.key.scancode;
-        if (scancode < 0 || scancode >= SDL_SCANCODE_COUNT) return;
-
-        if (event.type == SDL_EVENT_KEY_DOWN) {
-            held[scancode] = true;
-            if (event.key.repeat)
-                repeated[scancode] = true;
-            else
-                pressed[scancode] = true;
-        } else {
-            held[scancode] = false;
-        }
-    }
-
-    bool is_held(SDL_Scancode key) const { return held[key]; }
-
-    bool consume_press(SDL_Scancode key) {
-        const bool was_pressed = pressed[key];
-        pressed[key] = false;
-        return was_pressed;
-    }
-
-    bool consume_repeat_press(SDL_Scancode key) {
-        const bool was_pressed = pressed[key] || repeated[key];
-        pressed[key] = false;
-        repeated[key] = false;
-        return was_pressed;
-    }
 
     void init() override {}
     void loop() override {}
     void quit() override {}
+
+    virtual void digest(SDL_Event& e) = 0;
+};
+
+struct InputHandler : triolib::AppModule {
+    tClass;
+
+    bool mouse_fps_style = false;
+    struct {
+        uint up = 0, down = 0, left = 0, right = 0;
+    } mouse_moved;
+
+    ScancodeKeyState key_states[SDL_SCANCODE_COUNT]{};
+    std::span<const bool> raw_state;
 };
