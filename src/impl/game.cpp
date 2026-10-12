@@ -59,6 +59,11 @@ struct Game : RendererGame {
         load_subapp(renderer_name);
 
         load_resources();
+        auto& resources = getmod<ResourceHandler>().resources;
+        resources.define_atlas(
+            "assets/minecraft/textures/block",
+            resources.list_pngs("assets/minecraft/textures/block"));
+        resources.load_all_atlases();
 
         load_subapp("World");
         load_subapp<MainWorldRenderer>();
@@ -67,30 +72,3 @@ struct Game : RendererGame {
     bool has_finished_loading = false;
     void loop() override { Application::loop(); }
 } REGISTER_APP(Game);
-
-struct GameResourceLoader : AppModule {
-    tClass;
-    ResourceHandler* rh;
-    bool has_finished_loading = false;
-    void init() override {
-        rh = &parent->getmod<ResourceHandler>();
-        assert(rh);
-        rh->whitelist.insert("data");
-        rh->whitelist.insert("assets");
-        rh->resource_origins.push_back(
-            {std::string(mc_client_location()), ResourceHandler::ResourceOriginType::ZipFromFs});
-    }
-    void loop() override {
-        if (rh->has_loaded && !has_finished_loading) {
-            has_finished_loading = true;
-            console.debug << "Loaded " << rh->resources.size() << " resources.";
-            const auto* resource = rh->resources.try_get("minecraft/gpu_warnlist.json");
-            if (!resource)
-                throw runtime_error(
-                    "Loaded resource is missing: "
-                    "assets/minecraft/gpu_warnlist.json");
-            console.debug << "Read assets/minecraft/gpu_warnlist.json: " << resource->json().dump(2);
-        }
-    }
-    void quit() override {}
-} REGISTER_MOD(GameResourceLoader);

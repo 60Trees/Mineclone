@@ -1,6 +1,7 @@
 #include "glrenderer.hpp"
 #include <opengl.hpp>
 #include <unordered_set>
+#include "base/resources.hpp"
 
 using namespace std;
 using namespace triolib;
@@ -50,6 +51,7 @@ struct MainGlRendererImpl : MainGlRenderer {
                        << " extensions.";
 
         // Initialize all the renderers
+
         load_all_mods();
         for (auto* mod : init_mod_order) {
             GlRenderer* glmod = dynamic_cast<GlRenderer*>(mod);

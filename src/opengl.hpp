@@ -30,14 +30,12 @@ namespace opengl {
     extern logger::Logger gl_err;
 
     inline std::string_view get_string(GLenum name) {
-        return std::string_view(
-            reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
+        return std::string_view(reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
     }
 
 #ifdef DO_GL_DEBUG
-    inline void debug_callback(
-        GLenum source, GLenum type, GLuint id, GLenum severity,
-        GLsizei /*length*/, const GLchar* message, const void* /*userParam*/
+    inline void debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei /*length*/,
+        const GLchar* message, const void* /*userParam*/
     ) {
         const char* source_str = "UNKNOWN";
 
@@ -159,8 +157,7 @@ namespace opengl {
         glDebugMessageCallback(debug_callback, nullptr);
 
         // Enable all messages except notifications.
-        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE,
-            GL_DEBUG_SEVERITY_NOTIFICATION, 0, nullptr, GL_FALSE);
+        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_NOTIFICATION, 0, nullptr, GL_FALSE);
 
         gl_log << "OpenGL debug output enabled.";
     }
@@ -168,9 +165,7 @@ namespace opengl {
 
     struct ShaderUniform {
         GLint id;
-        inline GLint init(const char* name) {
-            return id = glGetUniformLocation(id, name);
-        }
+        inline GLint init(const char* name) { return id = glGetUniformLocation(id, name); }
         inline operator GLint() const { return id; }
         inline operator GLint&() { return id; }
     };
@@ -202,16 +197,13 @@ namespace opengl {
         }
 
         template <typename T>
-        inline void data(
-            std::span<const T> data_to_upload, GLenum render_mode) {
-            glBufferData(GL_ARRAY_BUFFER,
-                static_cast<GLsizeiptr>(data_to_upload.size() * sizeof(T)),
+        inline void data(std::span<const T> data_to_upload, GLenum render_mode) {
+            glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data_to_upload.size() * sizeof(T)),
                 data_to_upload.data(), render_mode);
         }
 
         inline void data(const void* data, size_t size, GLenum render_mode) {
-            glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(size), data,
-                render_mode);
+            glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(size), data, render_mode);
         }
 
         inline ~VBO() { destroy(); }
@@ -247,8 +239,7 @@ namespace opengl {
             "#version 430 core\n";
 #endif
 
-        inline void source_from_strview(
-            std::string_view source, bool raw = false) {
+        inline void source_from_strview(std::string_view source, bool raw = false) {
             if (raw) {
                 const GLchar* str = source.data();
                 const GLint length = static_cast<GLint>(source.size());
@@ -266,8 +257,7 @@ namespace opengl {
 
         /// If it's not raw then it prepends the `preamble` string
         /// so that the shader is cross-compatible
-        inline void source_from_path(
-            const std::string& path, bool raw = false) {
+        inline void source_from_path(const std::string& path, bool raw = false) {
             source_from_strview(load_asset(path), raw);
         }
 
@@ -284,8 +274,7 @@ namespace opengl {
 
             glGetShaderiv(id, GL_INFO_LOG_LENGTH, &log_length);
 
-            std::string info_log(
-                static_cast<size_t>(std::max(log_length, 1)), '\0');
+            std::string info_log(static_cast<size_t>(std::max(log_length, 1)), '\0');
 
             glGetShaderInfoLog(id, log_length, nullptr, info_log.data());
 
@@ -319,16 +308,13 @@ namespace opengl {
             id = glCreateProgram();
 
             if (id == 0) {
-                throw std::runtime_error(
-                    "Failed to create OpenGL shader program");
+                throw std::runtime_error("Failed to create OpenGL shader program");
             }
 
             initialized = true;
         }
 
-        inline void attach(const Shader& shader) {
-            glAttachShader(id, shader.id);
-        }
+        inline void attach(const Shader& shader) { glAttachShader(id, shader.id); }
 
         inline void attach(GLuint shaderid) { glAttachShader(id, shaderid); }
 
@@ -345,8 +331,7 @@ namespace opengl {
 
             glGetProgramiv(id, GL_INFO_LOG_LENGTH, &log_length);
 
-            std::string info_log(
-                static_cast<size_t>(std::max(log_length, 1)), '\0');
+            std::string info_log(static_cast<size_t>(std::max(log_length, 1)), '\0');
 
             glGetProgramInfoLog(id, log_length, nullptr, info_log.data());
 
@@ -366,11 +351,9 @@ namespace opengl {
             initialized = false;
         }
 
-        inline GLint get_uniform_location(
-            const std::string& name, bool throw_if_not_found) {
+        inline GLint get_uniform_location(const std::string& name, bool throw_if_not_found) {
             auto retval = glGetUniformLocation(id, name.c_str());
-            if (throw_if_not_found && retval < 0)
-                throw std::runtime_error("Uniform " + name + " was not found.");
+            if (throw_if_not_found && retval < 0) throw std::runtime_error("Uniform " + name + " was not found.");
             return retval;
         }
 
@@ -403,17 +386,48 @@ namespace opengl {
             initialized = false;
         }
 
-        inline void vertexAttribPointer(GLuint index, GLint count, GLenum type,
-            GLboolean normalized, GLsizei stride, size_t offset) {
-            glVertexAttribPointer(index, count, type, normalized, stride,
-                reinterpret_cast<const void*>(offset));
+        inline void vertexAttribPointer(
+            GLuint index, GLint count, GLenum type, GLboolean normalized, GLsizei stride, size_t offset) {
+            glVertexAttribPointer(index, count, type, normalized, stride, reinterpret_cast<const void*>(offset));
         }
 
-        inline void enableAttribute(GLuint index) {
-            glEnableVertexAttribArray(index);
-        }
+        inline void enableAttribute(GLuint index) { glEnableVertexAttribArray(index); }
 
         inline ~VAO() { destroy(); }
+    };
+
+    struct EBO {
+        GLuint id = 0;
+        bool initialized = false;
+        inline operator GLuint() const { return id; }
+        inline operator GLuint&() { return id; }
+        inline operator bool() const { return initialized; }
+
+        inline void create() {
+            if (initialized) return;
+
+            glGenBuffers(1, &id);
+
+            initialized = true;
+        }
+
+        inline void bind() const { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, id); }
+
+        inline void destroy() {
+            if (!initialized) return;
+
+            glDeleteBuffers(1, &id);
+
+            id = 0;
+            initialized = false;
+        }
+
+        template <typename T>
+        inline void data(std::span<const T> data, GLenum render_mode) {
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.size() * sizeof(T), data.data(), render_mode);
+        }
+
+        inline ~EBO() { destroy(); }
     };
 
     struct Texture {
@@ -441,7 +455,7 @@ namespace opengl {
         if (upload_error == GL_NO_ERROR) return;
 
         gl_err << "Failed to upload texture atlas: " << upload_error;
-        throw std::runtime_error(
-            "Failed to upload texture atlas: " + std::to_string(upload_error));
+        throw std::runtime_error("Failed to upload texture atlas: " + std::to_string(upload_error));
     }
+
 }  // namespace opengl
