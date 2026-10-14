@@ -6,7 +6,6 @@
 #include <SDL3/SDL_main.h>
 #include <opengl.hpp>
 #include <triolib.hpp>
-#include <iostream>
 #include <cmrc/cmrc.hpp>
 #ifdef __EMSCRIPTEN__
 #    include <emscripten.h>
@@ -22,16 +21,16 @@ std::string_view load_asset(const std::string& path) {
     return {file.begin(), file.size()};
 }
 
-#define try_smth(task, taskname, onerr)                                                         \
-    try {                                                                                       \
-        task;                                                                                   \
-    } catch (std::exception & e) {                                                              \
-        main_err << "Error " << typeid(e).name() << " while " << taskname << ":\n" << e.what(); \
-        {                                                                                       \
-            onerr;                                                                              \
-        }                                                                                       \
-        main_err << "Goodbye ):";                                                               \
-        throw;                                                                                  \
+#define try_smth(task, taskname, onerr)                                                                            \
+    try {                                                                                                          \
+        task;                                                                                                      \
+    } catch (std::exception & e) {                                                                                 \
+        main_err << "Error " << get_dynamic_name<std::exception>(e) << " while " << taskname << ":\n" << e.what(); \
+        {                                                                                                          \
+            onerr;                                                                                                 \
+        }                                                                                                          \
+        main_err << "Goodbye ): (throwing on exit)";                                                               \
+        throw;                                                                                                     \
     }
 
 bool before_main = true;

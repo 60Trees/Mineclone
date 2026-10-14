@@ -3,12 +3,14 @@
  * @version 1.0.0
  */
 
+#pragma once
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_scancode.h>
 #include <cmath>
+#include <concepts>
 #include <triolib.hpp>
 
-struct ScancodeKeyState {
+struct InputState {
     bool pressed = false;
     /// 0 = this frame, >0 = how many seconds ago
     float duration = INFINITY;
@@ -17,6 +19,22 @@ struct ScancodeKeyState {
     inline bool pushed() const { return pressed; }
     inline bool just_pressed() const { return pressed && duration == 0.0; }
     inline bool just_released() const { return !pressed && duration == 0.0; }
+
+    template <std::floating_point F>
+    inline void update(bool pressed, F delta_time) {
+        if (pressed) {
+            if (!this->pressed)
+                duration = 0.0f;
+            else
+                duration += delta_time;
+        } else {
+            if (this->pressed)
+                duration = 0.0f;
+            else
+                duration += delta_time;
+        }
+        this->pressed = pressed;
+    }
 };
 
 struct EventDigester : triolib::AppModule {
@@ -37,6 +55,6 @@ struct InputHandler : triolib::AppModule {
         uint up = 0, down = 0, left = 0, right = 0;
     } mouse_moved;
 
-    ScancodeKeyState key_states[SDL_SCANCODE_COUNT]{};
+    InputState key_states[SDL_SCANCODE_COUNT]{};
     std::span<const bool> raw_state;
 };

@@ -43,7 +43,13 @@ struct RawRegistryEntry {
      */
     Identifier regid;
 
-    RawRegistryEntry(Identifier resid, Identifier regid) : resid(resid), regid(regid) {}
+    RawRegistryEntry(Identifier resid, Identifier regid) : resid(std::move(resid)), regid(std::move(regid)) {}
+
+    bool operator<(const RawRegistryEntry& other) const {
+        if (regid != other.regid) return regid < other.regid;
+
+        return resid < other.resid;
+    }
 };
 
 /**
@@ -87,7 +93,7 @@ extern std::vector<std::string> registry_entry_errors;
         registry_entry_constructors[{__resid, __regid}] = []() -> std::unique_ptr<RegistryEntry> {             \
             auto retval = std::make_unique<classname>();                                                       \
             retval->resid = __resid;                                                                           \
-            retval->regid = __regid;                                                                           \
+            return retval;                                                                                     \
         };                                                                                                     \
     }
 
@@ -108,6 +114,29 @@ struct Registry : triolib::Module {
 
     std::map<RegistryUint, std::unique_ptr<RegistryEntry>> entries;
     virtual std::string get_regid() const = 0;
+    RegistryUint get_index(IdentifierView resid) const {
+        for (auto& [idx, entry] : entries) {
+            if (entry->resid == resid) return idx;
+        }
+        return RegistryNull;
+    }
+
+    inline RegistryEntry& get_entry(RegistryUint idx) const {
+        if (!entries.contains(idx)) throw std::out_of_range("Registry entry index not found: " + std::to_string(idx));
+        return *entries.at(idx);
+    }
+    inline RegistryEntry& get_entry(IdentifierView resid) const {
+        for (auto& [idx, entry] : entries)
+            if (entry->resid == resid) return *entry;
+        throw std::out_of_range("Registry entry not found: " + std::string(resid));
+    }
+
+    inline bool has_entry(RegistryUint idx) const { return entries.contains(idx); }
+    inline bool has_entry(IdentifierView resid) const {
+        for (auto& [idx, entry] : entries)
+            if (entry->resid == resid) return true;
+        return false;
+    }
 
     /**
      * @brief Makes certain IDs reserved.

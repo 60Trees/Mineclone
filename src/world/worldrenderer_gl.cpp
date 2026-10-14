@@ -25,10 +25,10 @@ struct TestRenderer : MainWorldRenderer::Renderer {
     // clang-format off
     vector<float> vertices {
         // positions          // colors           // texture coords
-         0.5f,  0.5f, 0.0f,   1.0f, 1.0f, 1.0f,   1.0f, 1.0f,   // top right
-         0.5f, -0.5f, 0.0f,   0.5f, 0.5f, 0.5f,   1.0f, 0.0f,   // bottom right
-        -0.5f, -0.5f, 0.0f,   0.3f, 0.3f, 0.3f,   0.0f, 0.0f,   // bottom left
-        -0.5f,  0.5f, 0.0f,   0.5f, 0.5f, 0.5f,   0.0f, 1.0f    // top left 
+         1.0f,  1.0f, 0.0f,   1.0f, 1.0f, 1.0f,   1.0f, 0.0f,   // top right
+         1.0f, -1.0f, 0.0f,   0.5f, 0.5f, 0.5f,   1.0f, 1.0f,   // bottom right
+        -1.0f, -1.0f, 0.0f,   0.3f, 0.3f, 0.3f,   0.0f, 1.0f,   // bottom left
+        -1.0f,  1.0f, 0.0f,   0.5f, 0.5f, 0.5f,   0.0f, 0.0f    // top left 
     };
 
     constexpr static std::array<uint, 6> ebo_indices = {  // note that we start from 0!
@@ -73,13 +73,13 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-            // auto* atlas =
-            //     parent->application->getmod<ResourceHandler>().resources.get_atlas("assets/minecraft/textures/block");
-            // ResourceHandler::Image img = atlas->image;
+            auto* atlas =
+                parent->application->getmod<ResourceHandler>().resources.get_atlas("assets/minecraft/textures/block");
+            ResourceHandler::Image img = atlas->image;
 
-            auto img = parent->application->getmod<ResourceHandler>()
-                           .resources.get("minecraft/textures/block/copper_block.png")
-                           .image();
+            // auto img = parent->application->getmod<ResourceHandler>()
+            //                .resources.get("minecraft/textures/block/honeycomb_block.png")
+            //                .image();
 
             glTexImage2D(
                 GL_TEXTURE_2D, 0, GL_RGBA, img.width, img.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.bytes().data());

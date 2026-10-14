@@ -12,6 +12,7 @@
 #include <registry/registry.hpp>
 #include <triolib.hpp>
 #include <include/position.hpp>
+#include <world/entities/entity.hpp>
 
 struct Tile {
     RegistryUint id = RegistryNull;
@@ -66,7 +67,8 @@ struct UnlockedChunk {
     Tile single_tile = TileNull;
 
     UnlockedChunk() = default;
-    UnlockedChunk(std::unique_ptr<RawChunk> raw_chunk, Tile single_tile) : raw_chunk(std::move(raw_chunk)), single_tile(single_tile) {}
+    UnlockedChunk(std::unique_ptr<RawChunk> raw_chunk, Tile single_tile)
+        : raw_chunk(std::move(raw_chunk)), single_tile(single_tile) {}
 
     inline void set_blocks(const std::array<Tile, CHUNK_BLOCK_COUNT>& tiles) noexcept {
         raw_chunk = std::make_unique<RawChunk>();
@@ -119,7 +121,10 @@ struct UnlockedChunk {
         raw_chunk = nullptr;
         needs_remesh = true;
     }
-    inline bool is_single_block() noexcept { try_compress(); return !raw_chunk; }
+    inline bool is_single_block() noexcept {
+        try_compress();
+        return !raw_chunk;
+    }
 
     bool needs_remesh = true;
     std::vector<BlockVertex> mesh;
@@ -240,4 +245,3 @@ struct ChunkMesher : World::Module {
     void loop() override {}
     void quit() override {}
 };
-

@@ -12,6 +12,33 @@
 #include <vector>
 #include <logger.hpp>
 
+#include <string>
+#include <typeinfo>
+#include <cstdlib>
+#include <nlohmann/json.hpp>
+
+#if defined(__GNUC__) || defined(__clang__)
+#    include <cxxabi.h>
+#endif
+
+template <typename T>
+inline std::string get_dynamic_name(const T& e) {
+    const char* name = typeid(e).name();
+
+#if defined(__GNUC__) || defined(__clang__)
+    int status = 0;
+    char* demangled = abi::__cxa_demangle(name, nullptr, nullptr, &status);
+
+    if (status == 0 && demangled) {
+        std::string result(demangled);
+        std::free(demangled);
+        return result;
+    }
+#endif
+
+    return name;
+}
+
 #ifdef __EMSCRIPTEN__
 using uint = unsigned int;  // emscripten doesn't have `uint`
 #endif
@@ -26,6 +53,9 @@ enum BuildType : unsigned char {
     Release = BUILD_TYPE_RELEASE,
 };
 constexpr static BuildType build_type = static_cast<BuildType>(BUILD_TYPE);
+
+std::string prettify_json(
+    const nlohmann::json& j, int indent = 4, int line_limit = -1, int chars_for_single_line_object = 30);
 
 #define debug_only if constexpr (::build_type == ::Debug)
 
@@ -65,7 +95,7 @@ namespace triolib {
         /**
          * Virtual name
          */
-        inline virtual std::string vname() const noexcept { return typeid(*this).name(); }
+        inline virtual std::string vname() const noexcept { return get_dynamic_name<BaseClass>(*this); }
     };
 
     struct SubApp;
@@ -214,7 +244,9 @@ namespace triolib {
             SubApp* subapp = get_subapp_ptr<T>(subappname);
             if (!subapp) throw std::logic_error("Application subapp does not exist: " + subappname);
             T* retval = dynamic_cast<T*>(subapp);
-            if (!retval) throw std::logic_error("Application subapp " + subappname + " (of type " + subapp->vname() + ") is not of type " + T::sname());
+            if (!retval)
+                throw std::logic_error("Application subapp " + subappname + " (of type " + subapp->vname() +
+                                       ") is not of type " + T::sname());
             return *retval;
         }
 

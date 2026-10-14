@@ -177,7 +177,7 @@ namespace triolib {
 }  // namespace triolib
 
 static constexpr std::string_view newline = "\n";
-static constexpr std::string_view midnewl = GREY " ├ " RESET;
+static constexpr std::string_view midnewl = GREY " │ " RESET;
 static constexpr std::string_view endnewl = GREY " └ " RESET;
 
 #define __mkpref(coloured_text) (std::string(GREY) + TIMESTAMP + " " RESET coloured_text RESET ": ")
