@@ -6,6 +6,11 @@
 #include <include/position.hpp>
 #include <world/world.hpp>
 
+struct RendererGame : triolib::Application {
+    tClass;
+    std::string renderer_name;
+};
+
 struct MainRenderer : triolib::SubApp {
     tClass;
     SDL_Window* window = nullptr;
@@ -26,6 +31,7 @@ struct MainRenderer : triolib::SubApp {
 struct Renderer : triolib::Module {
     tClass;
 
+    virtual void before_sdl_init() {}
     void init() override = 0;
     void loop() override = 0;
     void quit() override = 0;

@@ -173,6 +173,8 @@ struct EntityListImpl : EntityList {
             world.camera.x = cam_entity->pos.x;
             world.camera.y = cam_entity->pos.y;
             world.camera.z = cam_entity->pos.z;
+            world.camera.yaw = cam_entity->yaw;
+            world.camera.pitch = cam_entity->pitch;
 
             cam_entity->camera_on_follow(*parent->application);
         }

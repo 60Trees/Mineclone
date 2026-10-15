@@ -1,7 +1,7 @@
 #pragma once
 
 #include <functional>
-#include <glm/ext/vector_float3.hpp>
+#include <glm/common.hpp>
 #include <memory>
 #include <registry/registry.hpp>
 #include <nlohmann/json.hpp>
@@ -86,6 +86,11 @@ struct Entity {
     glm::vec<3, double> vel{0, 0, 0};
     /// In blocks
     glm::vec<3, double> hitbox{1, 1, 1};
+
+    /// Pitch (-90 to 90): 0 = forward, -90 = looking down, 90 = looking up
+    double yaw;
+    /// Yaw (-180 to 180): 0 = north, 90 = east, +-180 = south, -90 = west
+    double pitch;
 
     /**
      * @detail If true, this entity will

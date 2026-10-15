@@ -11,29 +11,46 @@
 #include <triolib.hpp>
 
 struct InputState {
-    bool pressed = false;
+    float pressure = 0.0;
+    float threshold = 0.5;
     /// 0 = this frame, >0 = how many seconds ago
     float duration = INFINITY;
-    inline operator bool() const { return pressed; }
+    inline operator bool() const { return pressure >= threshold; }
 
-    inline bool pushed() const { return pressed; }
-    inline bool just_pressed() const { return pressed && duration == 0.0; }
-    inline bool just_released() const { return !pressed && duration == 0.0; }
+    inline bool pushed() const { return pressure >= threshold; }
+    inline bool just_pressed() const { return pushed() && duration == 0.0; }
+    inline bool just_released() const { return !pushed() && duration == 0.0; }
 
     template <std::floating_point F>
-    inline void update(bool pressed, F delta_time) {
-        if (pressed) {
-            if (!this->pressed)
+    inline void update(float _pressure, F delta_time) {
+        if (_pressure >= threshold) {
+            if (!this->pushed())
                 duration = 0.0f;
             else
                 duration += delta_time;
         } else {
-            if (this->pressed)
+            if (this->pushed())
                 duration = 0.0f;
             else
                 duration += delta_time;
         }
-        this->pressed = pressed;
+        this->pressure = _pressure;
+    }
+
+    template <std::floating_point F>
+    inline void update(bool pressed, F delta_time) {
+        if (pressed) {
+            if (!this->pushed())
+                duration = 0.0f;
+            else
+                duration += delta_time;
+        } else {
+            if (this->pushed())
+                duration = 0.0f;
+            else
+                duration += delta_time;
+        }
+        this->pressure = pressed ? 1.0 : 0.0;
     }
 };
 

@@ -21,18 +21,13 @@ extern "C" const char* mc_client_version();
 using namespace triolib;
 using namespace std;
 
-struct RendererGame : Application {
-    tClass;
-    std::string renderer_name = "MainGlRenderer";
-};
-
-struct Game : RendererGame {
+struct Game : Application {
     tClass;
     Game() { name = "Mineclone"; }
     /// Needs GlRenderer to be loaded first
     void load_resources() {
         auto& rh = getmod<ResourceHandler>();
-        auto& renderer = get_subapp<MainRenderer>(renderer_name);
+        auto& renderer = get_subapp<MainRenderer>();
         auto& fps = getmod<FpsHandler>();
         auto& loading_screen = renderer.getmod<LoadingScreen>();
 
@@ -56,13 +51,12 @@ struct Game : RendererGame {
     void init() override {
         Application::init();
 
-        load_subapp(renderer_name);
+        load_subapp<MainRenderer>();
 
         load_resources();
         auto& resources = getmod<ResourceHandler>().resources;
         resources.define_atlas(
-            "assets/minecraft/textures/block",
-            resources.list_pngs("assets/minecraft/textures/block"));
+            "assets/minecraft/textures/block", resources.list_pngs("assets/minecraft/textures/block"));
         resources.load_all_atlases();
 
         load_subapp("World");

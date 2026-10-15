@@ -26,7 +26,7 @@ struct KbPushCtl : PushCtl {
     KbPushCtl(InputHandler& input_handler, SDL_Scancode scancode, float threshold = 0.5f)
         : PushCtl(input_handler, threshold), scancode(scancode) {}
 
-    float get_pressure() const override { return input_handler.key_states[scancode].pressed ? 1.0f : 0.0f; }
+    float get_pressure() const override { return input_handler.key_states[scancode].pushed() ? 1.0f : 0.0f; }
 };
 
 struct MousePushCtl : PushCtl {

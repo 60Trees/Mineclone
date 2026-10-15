@@ -1,7 +1,11 @@
 #include "glrenderer.hpp"
+#include <SDL3/SDL_cpuinfo.h>
+#include <SDL3/SDL_gpu.h>
 #include <opengl.hpp>
 #include <unordered_set>
+#include <cstdlib>
 #include "base/resources.hpp"
+#include <platform.hpp>
 
 using namespace std;
 using namespace triolib;
@@ -15,6 +19,8 @@ struct MainGlRendererImpl : MainGlRenderer {
     unordered_set<string_view> gl_extensions{};
 
     void init() override {
+        if (!std::getenv("SDL_VIDEO_DRIVER") && std::getenv("WAYLAND_DISPLAY"))
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
         tassertmsg(SDL_Init(SDL_INIT_VIDEO), SDL_GetError());
         set_opengl_version();
 
@@ -49,6 +55,14 @@ struct MainGlRendererImpl : MainGlRenderer {
                        << "\nRenderer: " << glGetString(GL_RENDERER)
                        << "\nGLSL: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << "\nHas " << gl_extensions.size()
                        << " extensions.";
+        console.info << "OS: " OS_TRIPLET << " (" << sizeof(void*) * 8
+                     << "-bit)\n"
+                        "\nSDL version "
+                     << SDL_GetVersion() << "\n"
+                     << SDL_GetCurrentVideoDriver() << " video driver\n"
+                     << SDL_GetNumLogicalCPUCores() << " CPU count\n"
+                     << SDL_GetSystemRAM() << " MiB RAM\n"
+                     << SDL_GetCPUCacheLineSize() << " byte cache line size\n";
 
         // Initialize all the renderers
 

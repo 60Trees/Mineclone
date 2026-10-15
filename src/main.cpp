@@ -34,9 +34,22 @@ std::string_view load_asset(const std::string& path) {
     }
 
 bool before_main = true;
+std::vector<std::string> args = {};
 
 int main(int argc, char** argv) {
     before_main = false;
+
+    args = std::vector<std::string>(argv + 1, argv + argc);
+
+    if (!args.empty()) {
+        if (args[0] == "--version") {
+            console.log << "Mineclone version: 1.0.0";
+            return 0;
+        }
+        std::string printval = "Args: ";
+        for (const auto& arg : args) printval += "\n" + arg;
+        console.log << printval;
+    }
 
     using namespace triolib;
     using namespace std;

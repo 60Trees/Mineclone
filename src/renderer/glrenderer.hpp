@@ -8,7 +8,7 @@
 /// @brief `backed = "OpenGL" ; shader_backend = "GLSL"`
 /// With this file included, feel free to use OpenGL functions directly.
 struct MainGlRenderer : MainRenderer {
-    tClass;
+    tImplClass(MainRenderer);
 
     MainGlRenderer() {
         backend = "OpenGL";
@@ -24,4 +24,3 @@ struct GlRenderer : Renderer {
     tClass;
     MainGlRenderer* main_renderer = nullptr;
 };
-

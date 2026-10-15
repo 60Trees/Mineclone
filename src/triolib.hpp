@@ -44,6 +44,7 @@ using uint = unsigned int;  // emscripten doesn't have `uint`
 #endif
 
 extern bool before_main;
+extern std::vector<std::string> args;
 std::string_view load_asset(const std::string& path);
 
 enum BuildType : unsigned char {
