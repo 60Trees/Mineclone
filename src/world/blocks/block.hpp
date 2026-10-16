@@ -5,7 +5,7 @@
 
 struct BlockRegistry : Registry {
     registryClass("minecraft:block");
-} REGISTRY(BlockRegistry);
+};
 
 struct BlockEntry : RegistryEntry {
     virtual std::string block_model_path() const {

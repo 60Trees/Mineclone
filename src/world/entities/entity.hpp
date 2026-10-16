@@ -1,5 +1,6 @@
 #pragma once
 
+#include <any>
 #include <functional>
 #include <glm/common.hpp>
 #include <memory>
@@ -87,10 +88,12 @@ struct Entity {
     /// In blocks
     glm::vec<3, double> hitbox{1, 1, 1};
 
-    /// Pitch (-90 to 90): 0 = forward, -90 = looking down, 90 = looking up
-    double yaw;
+    std::map<std::string, std::any> flags;
+
     /// Yaw (-180 to 180): 0 = north, 90 = east, +-180 = south, -90 = west
-    double pitch;
+    double yaw = 0;
+    /// Pitch (-90 to 90): 0 = forward, -90 = looking down, 90 = looking up
+    double pitch = 0;
 
     /**
      * @detail If true, this entity will

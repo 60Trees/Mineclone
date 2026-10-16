@@ -11,8 +11,7 @@ static SDL_Window* _window = nullptr;
 struct RelativeSdlMouseMode : Renderer {
     tClass;
 
-    void before_sdl_init() override {
-    }
+    void before_sdl_init() override {}
 
     bool enabled = false;
     bool reported_failure = false;
@@ -31,12 +30,12 @@ struct RelativeSdlMouseMode : Renderer {
                 const bool grabbed = SDL_SetWindowMouseGrab(renderer.window, true);
                 console.err << "RelativeSdlMouseMode\nWindow: " << renderer.window
                             << "\nFailed to enable relative mouse mode: " << relative_mode_error
-                            << (grabbed ? "\nMouse grab fallback enabled." : "\nMouse grab fallback failed: " + std::string(SDL_GetError()));
+                            << (grabbed ? "\nMouse grab fallback enabled."
+                                        : "\nMouse grab fallback failed: " + std::string(SDL_GetError()));
             }
             return;
         }
         enabled = true;
-        console.log << "RelativeSdlMouseMode\nWindow: " << renderer.window << "\nRelative mouse mode enabled.";
         _window = renderer.window;
     }
 
@@ -53,11 +52,15 @@ struct InputHandlerImpl : InputHandler {
     void init() override { digesters = parent->get_mods<EventDigester>(); }
     void loop() override {
         mouse_moved = {};
+        mouse_scroll = 0;
+        auto dt = parent->getmod<FpsHandler>().dt;
+
+        for (auto& state : key_states) state.duration += dt;
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_MOUSE_MOTION) {
-                console.info << "Mouse motion: relative=" << e.motion.xrel << "," << e.motion.yrel;
+                // console.info << "Mouse motion: relative=" << e.motion.xrel << "," << e.motion.yrel;
                 if (e.motion.xrel < 0) mouse_moved.left += static_cast<uint>(std::abs(e.motion.xrel));
                 if (e.motion.xrel > 0) mouse_moved.right += static_cast<uint>(e.motion.xrel);
                 if (e.motion.yrel < 0) mouse_moved.up += static_cast<uint>(std::abs(e.motion.yrel));
@@ -65,37 +68,26 @@ struct InputHandlerImpl : InputHandler {
             }
             for (auto d : digesters) d->digest(e);
             if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) {
-                key_states[e.key.scancode].duration = 0.0;
+                key_states[e.key.scancode].duration = 0;
+                key_states[e.key.scancode].pressure = (e.type == SDL_EVENT_KEY_DOWN) ? 1.0f : 0.0f;
             }
             if (e.type == SDL_EVENT_QUIT) {
                 parent->done = true;
             }
-            if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
-                SDL_Log("Driver: %s", SDL_GetCurrentVideoDriver());
-SDL_Log("Window flags: 0x%llx",
-    static_cast<unsigned long long>(SDL_GetWindowFlags(_window)));
-SDL_Log("Focused: %s",
-    (SDL_GetWindowFlags(_window) & SDL_WINDOW_INPUT_FOCUS)
-        ? "yes" : "no");
-
-SDL_ClearError();
-
-if (!SDL_SetWindowRelativeMouseMode(_window, true)) {
-    SDL_Log("Relative mode failed: %s", SDL_GetError());
-}
+            if (e.type == SDL_EVENT_MOUSE_WHEEL) {
+                mouse_scroll += e.wheel.y;
             }
-        }
+            // if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+            //     SDL_Log("Driver: %s", SDL_GetCurrentVideoDriver());
+            //     SDL_Log("Window flags: 0x%llx", static_cast<unsigned long long>(SDL_GetWindowFlags(_window)));
+            //     SDL_Log("Focused: %s", (SDL_GetWindowFlags(_window) & SDL_WINDOW_INPUT_FOCUS) ? "yes" : "no");
 
-        auto state = SDL_GetKeyboardState(nullptr);
-        raw_state = std::span<const bool>(state, SDL_SCANCODE_COUNT);
-        for (uint i = 0; i < SDL_SCANCODE_COUNT; ++i) {
-            bool is_pressed = state[i];
-            if (key_states[i].pushed()) {
-                key_states[i].duration += parent->getmod<FpsHandler>().dt;
-                continue;
-            }
-            key_states[i].pressure = is_pressed ? 1.0f : 0.0f;
-            key_states[i].duration = 0.0;
+            //    SDL_ClearError();
+
+            //    if (!SDL_SetWindowRelativeMouseMode(_window, true)) {
+            //        SDL_Log("Relative mode failed: %s", SDL_GetError());
+            //    }
+            //}
         }
     }
 

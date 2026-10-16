@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <chrono>
 #include <memory>
 #include <ranges>
 #include <stdexcept>
@@ -335,6 +336,32 @@ namespace triolib {
 #    define tassume(to_check, msg) [[assume(to_check)]]
 #endif
 
+/// Only runs if the code has ran less than `n` times.
+#define run_times(n)                         \
+    if ([] {                                 \
+            static int _TRIOLIB_has_run = 0; \
+            if (_TRIOLIB_has_run < n) {      \
+                _TRIOLIB_has_run++;          \
+                return true;                 \
+            }                                \
+            return false;                    \
+        }())
+
+/// Only runs if the code has not been run before.
+#define run_once run_times(1)
+
+/// Runs the code if the time since the last run is greater than `time` seconds.
+#define run_limited(time)                                                                                           \
+    if ([] {                                                                                                        \
+            static auto _TRIOLIB_last_run = std::chrono::steady_clock::now() - std::chrono::duration<double>(time); \
+            auto now = std::chrono::steady_clock::now();                                                            \
+            if (now - _TRIOLIB_last_run > std::chrono::duration<double>(time)) {                                    \
+                _TRIOLIB_last_run = now;                                                                            \
+                return true;                                                                                        \
+            }                                                                                                       \
+            return false;                                                                                           \
+        }())
+
 extern struct Console {
     bool enabled;
     logger::Logger log, info, warn, err, debug;
@@ -343,3 +370,4 @@ extern struct Console {
     static logger::Logger title(std::string_view title);
     static logger::Logger generate_from_ostream(std::ostream& ostream);
 } console;
+

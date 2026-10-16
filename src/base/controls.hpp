@@ -8,16 +8,17 @@ struct Control {
     Control(InputHandler& input_handler) : input_handler(input_handler) {}
     InputHandler& input_handler;
     virtual operator bool() const = 0;
+    virtual void update() = 0;
 };
 
 struct PushCtl : Control {
     tClass;
-    float pressure = 0.0f;
     float threshold = 0.5f;
     PushCtl(InputHandler& input_handler, float threshold = 0.5f) : Control(input_handler), threshold(threshold) {}
 
-    operator bool() const final override { return pressure >= threshold; }
+    operator bool() const final override { return get_pressure() >= threshold; }
     virtual float get_pressure() const = 0;
+    void update() override { }
 };
 
 struct KbPushCtl : PushCtl {
@@ -46,6 +47,25 @@ struct MousePushCtl : PushCtl {
                 return input_handler.mouse_moved.left;
             case RIGHT:
                 return input_handler.mouse_moved.right;
+            default:
+                return false;
+        }
+    }
+};
+
+struct MouseScrollCtl : PushCtl {
+    tClass;
+    float sensitivity = 1.0f;
+    enum Direction { UP, DOWN } direction;
+    MouseScrollCtl(InputHandler& input_handler, Direction direction, float sensitivity = 1.0f)
+        : PushCtl(input_handler), direction(direction), sensitivity(sensitivity) {}
+
+    float get_pressure() const override {
+        switch (direction) {
+            case UP:
+                return input_handler.mouse_scroll > 0 ? input_handler.mouse_scroll * sensitivity : 0.0f;
+            case DOWN:
+                return input_handler.mouse_scroll < 0 ? -input_handler.mouse_scroll * sensitivity : 0.0f;
             default:
                 return false;
         }

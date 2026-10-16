@@ -8,49 +8,41 @@
 #include <SDL3/SDL_scancode.h>
 #include <cmath>
 #include <concepts>
+#include <limits>
+
 #include <triolib.hpp>
 
 struct InputState {
-    float pressure = 0.0;
-    float threshold = 0.5;
-    /// 0 = this frame, >0 = how many seconds ago
-    float duration = INFINITY;
-    inline operator bool() const { return pressure >= threshold; }
+    float pressure = 0.0f;
+    float threshold = 0.5f;
+
+    /// 0 = transition this frame, >0 = seconds since the last transition.
+    float duration = std::numeric_limits<float>::infinity();
+
+    inline operator bool() const { return pushed(); }
 
     inline bool pushed() const { return pressure >= threshold; }
-    inline bool just_pressed() const { return pushed() && duration == 0.0; }
-    inline bool just_released() const { return !pushed() && duration == 0.0; }
+
+    inline bool just_pressed() const { return pushed() && duration == 0.0f; }
+
+    inline bool just_released() const { return !pushed() && duration == 0.0f; }
 
     template <std::floating_point F>
     inline void update(float _pressure, F delta_time) {
-        if (_pressure >= threshold) {
-            if (!this->pushed())
-                duration = 0.0f;
-            else
-                duration += delta_time;
-        } else {
-            if (this->pushed())
-                duration = 0.0f;
-            else
-                duration += delta_time;
-        }
-        this->pressure = _pressure;
+        const bool was_pressed = pushed();
+        const bool is_pressed = _pressure >= threshold;
+
+        if (was_pressed != is_pressed)
+            duration = 0.0f;
+        else
+            duration += static_cast<float>(delta_time);
+
+        pressure = _pressure;
     }
 
     template <std::floating_point F>
     inline void update(bool pressed, F delta_time) {
-        if (pressed) {
-            if (!this->pushed())
-                duration = 0.0f;
-            else
-                duration += delta_time;
-        } else {
-            if (this->pushed())
-                duration = 0.0f;
-            else
-                duration += delta_time;
-        }
-        this->pressure = pressed ? 1.0 : 0.0;
+        update(pressed ? 1.0f : 0.0f, delta_time);
     }
 };
 
@@ -71,6 +63,7 @@ struct InputHandler : triolib::AppModule {
     struct {
         uint up = 0, down = 0, left = 0, right = 0;
     } mouse_moved;
+    int mouse_scroll = 0;
 
     InputState key_states[SDL_SCANCODE_COUNT]{};
     std::span<const bool> raw_state;

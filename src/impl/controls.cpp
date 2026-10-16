@@ -17,7 +17,8 @@ struct ControlsImpl : Controls {
         controls["look_left"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::LEFT);
         controls["look_right"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::RIGHT);
     }
-    void loop() override {}
+    void loop() override {
+        for (auto& [_, control] : controls) control->update();
+    }
     void quit() override {}
 } REGISTER_MOD(ControlsImpl);
-

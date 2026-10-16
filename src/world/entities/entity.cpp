@@ -4,6 +4,75 @@
 #include <world/world.hpp>
 #include <random>
 
+nlohmann::json any_to_json(const std::any& value) {
+    if (!value.has_value()) return nullptr;
+
+    const auto& type = value.type();
+
+    if (type == typeid(std::nullptr_t)) return nullptr;
+    if (type == typeid(bool)) return std::any_cast<bool>(value);
+
+    if (type == typeid(int)) return std::any_cast<int>(value);
+    if (type == typeid(unsigned int)) return std::any_cast<unsigned int>(value);
+    if (type == typeid(std::int64_t)) return std::any_cast<std::int64_t>(value);
+    if (type == typeid(std::uint64_t)) return std::any_cast<std::uint64_t>(value);
+
+    if (type == typeid(float)) return std::any_cast<float>(value);
+    if (type == typeid(double)) return std::any_cast<double>(value);
+
+    if (type == typeid(std::string)) return std::any_cast<const std::string&>(value);
+
+    if (type == typeid(std::vector<std::any>)) {
+        nlohmann::json result = nlohmann::json::array();
+
+        for (const auto& element : std::any_cast<const std::vector<std::any>&>(value)) {
+            result.push_back(any_to_json(element));
+        }
+
+        return result;
+    }
+
+    if (type == typeid(std::map<std::string, std::any>)) {
+        nlohmann::json result = nlohmann::json::object();
+
+        for (const auto& [key, element] : std::any_cast<const std::map<std::string, std::any>&>(value)) {
+            result[key] = any_to_json(element);
+        }
+
+        return result;
+    }
+
+    throw std::runtime_error(std::string("Unsupported std::any type: ") + type.name());
+}
+
+std::any json_to_any(const nlohmann::json& value) {
+    if (value.is_null()) return nullptr;
+    if (value.is_boolean()) return value.get<bool>();
+    if (value.is_number_integer()) return value.get<std::int64_t>();
+    if (value.is_number_unsigned()) return value.get<std::uint64_t>();
+    if (value.is_number_float()) return value.get<double>();
+    if (value.is_string()) return value.get<std::string>();
+
+    if (value.is_array()) {
+        std::vector<std::any> result;
+        result.reserve(value.size());
+
+        for (const auto& element : value) result.push_back(json_to_any(element));
+
+        return result;
+    }
+
+    if (value.is_object()) {
+        std::map<std::string, std::any> result;
+
+        for (auto it = value.begin(); it != value.end(); ++it) result[it.key()] = json_to_any(it.value());
+
+        return result;
+    }
+
+    throw std::runtime_error("Unsupported JSON value");
+}
+
 using namespace std;
 using namespace triolib;
 using namespace glm;
@@ -24,6 +93,13 @@ namespace {
 
 Entity::Entity(const nlohmann::json& data, Application& app) : id(extract_id(data)) {
     try {
+        if (data.contains("flags")) {
+            // this->flags: std::map<std::string, std::any>
+            auto flags = data["flags"];
+            for (auto& [key, value] : flags.items()) {
+                this->flags[key] = json_to_any(value);
+            }
+        }
         index = data["index"].get<EntityIDX>();
         vel = {data["vel"][0].get<double>(), data["vel"][1].get<double>(), data["vel"][2].get<double>()};
         persistent = data["persistent"].get<bool>();
@@ -51,7 +127,18 @@ Entity::Entity(const nlohmann::json& data, Application& app) : id(extract_id(dat
 }
 Entity::Entity(std::string id, EntityControls&& controls) : id(id), controls(controls) {}
 Entity::Entity(std::string id) : id(id) {}
-Entity::Entity(const Entity& other) : controls(other.controls) {}
+Entity::Entity(const Entity& other)
+    : id(other.id),
+      controls(other.controls),
+      pos(other.pos),
+      vel(other.vel),
+      hitbox(other.hitbox),
+      yaw(other.yaw),
+      pitch(other.pitch),
+      wants_to_despawn(other.wants_to_despawn),
+      wants_to_unload(other.wants_to_unload),
+      persistent(other.persistent),
+      index(other.index) {}
 
 EntityRegEntry* get_entityregentry(Application& app, string_view id) {
     auto& entityreg = app.get_subapp<RegistryList>().getmod<EntityRegistry>();
@@ -63,23 +150,22 @@ EntityRegEntry* get_entityregentry(Application& app, string_view id) {
     auto* entityregentry = dynamic_cast<EntityRegEntry*>(rawentityregentry);
 
     if (!entityregentry)
-        throw BadEntityRegistry(
-            string("EntityRegistry.get_entry(\"" + string(id) + "\") returns a " +
-                   get_dynamic_name<RegistryEntry>(*entityregentry) + ", which cannot be casted to EntityRegEntry!"));
+        throw BadEntityRegistry(string("EntityRegistry.get_entry(\"" + string(id) + "\") returns a " +
+                                       get_dynamic_name<RegistryEntry>(*rawentityregentry) +
+                                       ", which cannot be casted to EntityRegEntry!"));
 
     return entityregentry;
 }
 nlohmann::json Entity::dump(Application& app) const {
     auto& world = app.get_subapp<World>();
 
-    return {
-        {"id", id},
-        {"index", index},
+    nlohmann::json jflags;
+    for (const auto& [key, value] : this->flags) jflags[key] = any_to_json(value);
+
+    return {{"id", id}, {"index", index},
         {"pos", {{"offset", {world.offset.x.str(), world.offset.y.str(), world.offset.z.str()}},
                     {"value", {pos.x, pos.y, pos.z}}}},
-        {"vel", {vel.x, vel.y, vel.z}},
-        {"persistent", persistent},
-    };
+        {"vel", {vel.x, vel.y, vel.z}}, {"persistent", persistent}, {"flags", jflags}};
 }
 
 struct EntityListImpl : EntityList {
@@ -92,7 +178,12 @@ struct EntityListImpl : EntityList {
         if (!entityjson.contains("id")) throw runtime_error("Entity JSON does not contain id: " + entityjson.dump());
         auto id = entityjson["id"].get<string>();
         auto* entityregentry = get_entityregentry(*parent->application, id);
-        spawn_entity(id, index);
+        auto entity = entityregentry->spawn(entityjson, *parent->application);
+        if (!entity) throw BadEntityRegistry("While loading " + id + ": registry spawn returned nullptr.");
+        entity->index = index;
+        entity->spawn(*parent->application);
+        loaded_entities.emplace(index, std::move(entity));
+        saved_entities.erase(index);
     }
 
     virtual void remove_entity_refs(nlohmann::json& refs, EntityIDX_view index) {
@@ -146,7 +237,7 @@ struct EntityListImpl : EntityList {
 
             if (entity->wants_to_despawn) {
                 for (auto& [other_idx, other_entity] : loaded_entities)
-                    if (other_idx != idx) other_entity->on_other_entity_despawn(idx, *this);
+                    if (other_idx != idx && other_entity) other_entity->on_other_entity_despawn(idx, *this);
 
                 remove_entity_refs(idx);
                 to_remove.push_back(idx);
@@ -216,14 +307,23 @@ struct EntityListImpl : EntityList {
         if (!entityregentry)
             throw BadEntityRegistry(
                 string("EntityRegistry.get_entry(\"" + string(id) + "\") returns a " +
-                       get_dynamic_name<RegistryEntry>(*entityregentry) +
+                       get_dynamic_name<RegistryEntry>(*rawentityregentry) +
                        ", which cannot be casted to EntityRegEntry! (index allocated: " + index + ")"));
+
+        if (index.empty()) throw std::invalid_argument("Cannot spawn entity with an empty index.");
+        if (loaded_entities.contains(index) || saved_entities.contains(index))
+            throw std::logic_error("Entity index already in use: " + index);
 
         auto entity = entityregentry->spawn(index);
         if (!entity)
             throw BadEntityRegistry(
                 string("While spawning " + string(id) + ": " + get_dynamic_name<RegistryEntry>(*entityregentry) +
                        ".spawn(\"" + index + "\") returned nullptr!"));
+        entity->spawn(*parent->application);
         loaded_entities[index] = std::move(entity);
     }
 } REGISTER_MOD(EntityListImpl, World);
+
+struct EntityRegistryImpl : EntityRegistry {
+    registryClass("minecraft:entity");
+} REGISTRY(EntityRegistryImpl);

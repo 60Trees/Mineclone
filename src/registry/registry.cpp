@@ -9,15 +9,15 @@ using namespace triolib;
 RegistryUint Registry::get_empty_index(std::string resid) const {
     if (residx_reservations.contains(resid)) {
         auto needed_id = residx_reservations.at(resid);
+        if (needed_id == RegistryNull)
+            throw std::logic_error("Registry " + regid + " has an invalid reserved index for " + resid);
         if (entries.contains(needed_id))
             throw std::runtime_error(
                 "Registry " + regid + " already has an entry for " + resid + " at index " + std::to_string(needed_id));
         return needed_id;
     }
-    RegistryUint retval = 0;
-    while (true) {
+    for (RegistryUint retval = 0; retval < RegistryNull; ++retval) {
         if (entries.contains(retval)) {
-            retval++;
             continue;
         }
         if (std::find_if(residx_reservations.begin(), residx_reservations.end(),
@@ -25,11 +25,11 @@ RegistryUint Registry::get_empty_index(std::string resid) const {
             retval++;
             continue;
         }
-        if (retval == RegistryNull)
-            throw std::runtime_error("Registry " + regid + " is full (" + std::to_string(entries.size()) +
-                                     " entries, " + std::to_string(residx_reservations.size()) + " reserved)");
         return retval;
     }
+
+    throw std::runtime_error("Registry " + regid + " is full (" + std::to_string(entries.size()) +
+                             " entries, " + std::to_string(residx_reservations.size()) + " reserved)");
 }
 
 /// The mods are the registries
@@ -44,8 +44,10 @@ struct RegistryListImpl : RegistryList {
         load_all_mods();
         for (auto& mod : mods) {
             if (auto* registry = dynamic_cast<Registry*>(mod.get())) {
+                registry->regid = registry->get_regid();
+                registry->residx_reservations.clear();
                 for (auto& [raw, id] : residx_reservations) {
-                    if (raw.regid == registry->regid) registry->residx_reservations[raw.resid] = id;
+                    if (raw.regid == registry->get_regid()) registry->residx_reservations[raw.resid] = id;
                 }
             }
             mod->init();

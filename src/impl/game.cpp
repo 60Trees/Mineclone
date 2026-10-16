@@ -51,6 +51,7 @@ struct Game : Application {
     void init() override {
         Application::init();
 
+        load_subapp<RegistryList>();
         load_subapp<MainRenderer>();
 
         load_resources();

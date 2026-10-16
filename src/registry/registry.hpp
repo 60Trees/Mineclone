@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <string_view>
@@ -158,6 +159,7 @@ struct Registry : triolib::Module {
 
     void init() override {
         quit();
+        regid = get_regid();
         for (auto& [raw, constructor] : registry_entry_constructors) {
             if (raw.regid == this->regid) {
                 auto entry = constructor();
