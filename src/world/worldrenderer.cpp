@@ -5,6 +5,7 @@ using namespace triolib;
 struct MainWorldRendererImpl : MainWorldRenderer {
     tImplClass(MainWorldRenderer);
     void init() override {
+        world = &application->get_subapp<World>();
         load_all_mods();
         for (auto* mod : init_mod_order) {
             if (Renderer* renderer_mod = dynamic_cast<Renderer*>(mod)) {

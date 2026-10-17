@@ -60,7 +60,6 @@ struct InputHandlerImpl : InputHandler {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_MOUSE_MOTION) {
-                // console.info << "Mouse motion: relative=" << e.motion.xrel << "," << e.motion.yrel;
                 if (e.motion.xrel < 0) mouse_moved.left += static_cast<uint>(std::abs(e.motion.xrel));
                 if (e.motion.xrel > 0) mouse_moved.right += static_cast<uint>(e.motion.xrel);
                 if (e.motion.yrel < 0) mouse_moved.up += static_cast<uint>(std::abs(e.motion.yrel));

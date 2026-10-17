@@ -131,6 +131,7 @@ struct UnlockedChunk {
 };
 
 struct Chunk : UnlockedChunk {
+    /// Shared lock = read, unique lock = write
     std::shared_mutex mutex;
 };
 

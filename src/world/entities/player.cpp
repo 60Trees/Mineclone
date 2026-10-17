@@ -12,8 +12,8 @@ struct Player : Entity {
     entityClass("minecraft:player", Player);
 
     double err_margin = 0.1;
-    double speed = 5;
-    double sensitivity = 200.0;
+    double speed = 2;
+    double sensitivity = 0.5;
 
     nlohmann::json dump(Application& app) const override {
         nlohmann::json j = Entity::dump(app);
@@ -48,19 +48,18 @@ struct Player : Entity {
             double right = controls.input["look_right"].pressure - controls.input["look_left"].pressure;
 
             // 0 = forward, -90 = down (-y), 90 = up (+y)
-            pitch += up * dt * sensitivity;
+            pitch += up * sensitivity;
             if (pitch > 90 - err_margin) pitch = 90 - err_margin;
             if (pitch < err_margin - 90) pitch = err_margin - 90;
 
             // 0 = north (+x), 90 = east (+z), +-180 = south (-x), -90 = west (-z)
-            yaw += right * dt * sensitivity;
+            yaw += right * sensitivity;
             yaw = std::fmod(yaw + 180.0, 360.0);
             if (yaw < 0) yaw += 360.0;
             yaw -= 180.0;
         }
 
         {
-            if (false) run_limited(1) console.log << "FORWARD: ::: :" << controls.input["forward"].pressure;
             double forward = controls.input["forward"].pressure - controls.input["backward"].pressure;
             double right = controls.input["right"].pressure - controls.input["left"].pressure;
 
