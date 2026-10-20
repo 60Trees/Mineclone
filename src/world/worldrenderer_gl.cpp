@@ -1,7 +1,7 @@
 #include <opengl.hpp>
+#include "base/fps_handler.hpp"
 #include "base/resources.hpp"
 #include <renderer/glrenderer.hpp>
-#include <structures/assets/models/block.hpp>
 #include <base/controls.hpp>
 #include <world/worldrenderer.hpp>
 
@@ -12,36 +12,19 @@
 #include <span>
 #include <vector>
 
-using namespace std;
-
 struct TestRenderer : MainWorldRenderer::Renderer {
     tClass;
 
     opengl::VBO vbo;
     opengl::VAO vao;
-    opengl::VBO debug_vbo;
-    opengl::VAO debug_vao;
-
-    opengl::ShaderProgram shaderProgram;
+    opengl::ShaderProgram shader_program;
     opengl::Texture texture;
-
-    struct RenderChunk {
-        Vec3i position;
-        std::vector<BlockVertex> mesh;
-    };
 
     const ResourceHandler::Resources::Atlas* atlas = nullptr;
     GLint view_projection_location = -1;
     GLint atlas_size_location = -1;
 
-    constexpr static std::array<float, 32> debug_square = {
-        -0.5f, 0.01f, -0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-         0.5f, 0.01f, -0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-         0.5f, 0.01f,  0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-        -0.5f, 0.01f,  0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-    };
-
-    constexpr static std::string_view vertexShaderSource = R"(
+    constexpr static std::string_view vertex_shader_source = R"(
         layout (location = 0) in vec3 aPos;
         layout (location = 1) in vec3 aColor;
         layout (location = 2) in vec2 aTexCoord;
@@ -56,70 +39,50 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             ourColor = aColor;
             TexCoord = aTexCoord / atlasSize;
         })";
-    constexpr static std::string_view fragmentShaderSource = R"(
+    constexpr static std::string_view fragment_shader_source = R"(
         out vec4 FragColor;
-
         in vec3 ourColor;
         in vec2 TexCoord;
-
         uniform sampler2D ourTexture;
 
         void main() {
-            FragColor = texture(ourTexture, TexCoord) * vec4(ourColor, 1.0);  
+            FragColor = texture(ourTexture, TexCoord) * vec4(ourColor, 1.0);
         })";
 
     void init() override {
-        {  // Texture stuff
-            texture.create();
-            texture.bind();
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        texture.create();
+        texture.bind();
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-            atlas =
-                parent->application->getmod<ResourceHandler>().resources.get_atlas("assets/minecraft/textures/block");
-            ResourceHandler::Image img = atlas->image;
-
-            // auto img = parent->application->getmod<ResourceHandler>()
-            //                .resources.get("minecraft/textures/block/honeycomb_block.png")
-            //                .image();
-
-            glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_RGBA, img.width, img.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.bytes().data());
-
-            texture.generateMipmap();
-        }
+        atlas = parent->application->getmod<ResourceHandler>().resources.get_atlas("assets/minecraft/textures/block");
+        if (!atlas) throw std::runtime_error("Block texture atlas is not loaded");
+        const auto& image = atlas->image;
+        glTexImage2D(
+            GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.bytes().data());
 
         vbo.create();
         vbo.bind();
         vbo.data(nullptr, 0, GL_DYNAMIC_DRAW);
 
-        debug_vbo.create();
-        debug_vbo.bind();
-        debug_vbo.data(std::span<const float>(debug_square), GL_STATIC_DRAW);
+        opengl::Shader vertex_shader(GL_VERTEX_SHADER);
+        vertex_shader.create();
+        vertex_shader.source_from_strview(vertex_shader_source);
+        vertex_shader.compile();
+        opengl::Shader fragment_shader(GL_FRAGMENT_SHADER);
+        fragment_shader.create();
+        fragment_shader.source_from_strview(fragment_shader_source);
+        fragment_shader.compile();
 
-        {
-            opengl::Shader vertexShader(GL_VERTEX_SHADER);
-            vertexShader.create();
-            vertexShader.source_from_strview(vertexShaderSource);
-            vertexShader.compile();
-
-            opengl::Shader fragmentShader(GL_FRAGMENT_SHADER);
-            fragmentShader.create();
-            fragmentShader.source_from_strview(fragmentShaderSource);
-            fragmentShader.compile();
-
-            shaderProgram.create();
-            shaderProgram.attach(vertexShader);
-            shaderProgram.attach(fragmentShader);
-
-            shaderProgram.link();
-        }
-
-        shaderProgram.use();
-        view_projection_location = shaderProgram.get_uniform_location("viewProjection", true);
-        atlas_size_location = shaderProgram.get_uniform_location("atlasSize", true);
+        shader_program.create();
+        shader_program.attach(vertex_shader);
+        shader_program.attach(fragment_shader);
+        shader_program.link();
+        shader_program.use();
+        view_projection_location = shader_program.get_uniform_location("viewProjection", true);
+        atlas_size_location = shader_program.get_uniform_location("atlasSize", true);
 
         vao.create();
         vao.bind();
@@ -129,16 +92,6 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         vao.enableAttribute(1);
         vao.vertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), 6 * sizeof(float));
         vao.enableAttribute(2);
-
-        debug_vao.create();
-        debug_vao.bind();
-        debug_vbo.bind();
-        debug_vao.vertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), 0);
-        debug_vao.enableAttribute(0);
-        debug_vao.vertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), 3 * sizeof(float));
-        debug_vao.enableAttribute(1);
-        debug_vao.vertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), 6 * sizeof(float));
-        debug_vao.enableAttribute(2);
     }
 
     void loop() override {
@@ -146,64 +99,76 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         glEnable(GL_DEPTH_TEST);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        size_t vertex_count = 0;
+
         const auto& camera = parent->world->camera;
         const auto window_size = parent->application->get_subapp<MainRenderer>().window_size();
         const float aspect = static_cast<float>(window_size.x) / static_cast<float>(window_size.y);
-        const float pitch = glm::radians(static_cast<float>(camera.pitch));
-        const float yaw = glm::radians(static_cast<float>(camera.yaw));
+        const float pitch = glm::radians(camera.pitch);
+        const float yaw = glm::radians(camera.yaw);
         const glm::vec3 direction{
             std::cos(pitch) * std::cos(yaw),
             std::sin(pitch),
             std::cos(pitch) * std::sin(yaw),
         };
-        const glm::mat4 view_projection = glm::perspective(glm::radians(70.0f), aspect, 0.05f, 4096.0f) *
-            glm::lookAt(glm::vec3(camera.x, camera.y, camera.z),
-                glm::vec3(camera.x, camera.y, camera.z) + direction, glm::vec3(0.0f, 1.0f, 0.0f));
-
-        std::vector<RenderChunk> render_chunks;
-        {
-            std::shared_lock chunks_lock(parent->world->chunks_mutex);
-            render_chunks.reserve(parent->world->chunks.size());
-            for (auto& [position, chunk] : parent->world->chunks) {
-                std::unique_lock chunk_lock(chunk.mutex);
-                if (!chunk.mesh.empty()) render_chunks.push_back({position, std::move(chunk.mesh)});
-            }
-        }
-
-        const glm::dvec3 camera_position{camera.x, camera.y, camera.z};
-        std::sort(render_chunks.begin(), render_chunks.end(), [&](const RenderChunk& lhs, const RenderChunk& rhs) {
-            const glm::dvec3 lhs_center{
-                lhs.position.x * CHUNK_SIZE + CHUNK_SIZE / 2.0,
-                lhs.position.y * CHUNK_SIZE + CHUNK_SIZE / 2.0,
-                lhs.position.z * CHUNK_SIZE + CHUNK_SIZE / 2.0,
-            };
-            const glm::dvec3 rhs_center{
-                rhs.position.x * CHUNK_SIZE + CHUNK_SIZE / 2.0,
-                rhs.position.y * CHUNK_SIZE + CHUNK_SIZE / 2.0,
-                rhs.position.z * CHUNK_SIZE + CHUNK_SIZE / 2.0,
-            };
-            return glm::dot(lhs_center - camera_position, lhs_center - camera_position) >
-                glm::dot(rhs_center - camera_position, rhs_center - camera_position);
-        });
+        const glm::mat4 view_projection =
+            glm::perspective(glm::radians(70.0f), aspect, 0.05f, 4096.0f) *
+            glm::lookAt(glm::vec3(camera.x, camera.y, camera.z), glm::vec3(camera.x, camera.y, camera.z) + direction,
+                glm::vec3(0.0f, 1.0f, 0.0f));
 
         std::vector<float> vertices;
-        for (const auto& render_chunk : render_chunks) {
-            const float chunk_x = static_cast<float>(render_chunk.position.x * CHUNK_SIZE);
-            const float chunk_y = static_cast<float>(render_chunk.position.y * CHUNK_SIZE);
-            const float chunk_z = static_cast<float>(render_chunk.position.z * CHUNK_SIZE);
-            for (const auto& vertex : render_chunk.mesh) {
-                vertices.insert(vertices.end(), {
-                    chunk_x + vertex.x, chunk_y + vertex.y, chunk_z + vertex.z,
-                    vertex.lighting / 65535.0f, vertex.lighting / 65535.0f, vertex.lighting / 65535.0f,
-                    static_cast<float>(vertex.u0), static_cast<float>(vertex.v1),
-                });
+        {
+            auto& data = parent->world->mesh_data;
+            std::shared_lock meshes_lock(data.meshes_mutex);
+            for (PosLodLevel lod = 0; lod < data.meshes.size(); ++lod) {
+                std::shared_lock levels_lock(parent->world->levels_mutex);
+                for (const auto& [position, mesh] : data.meshes[lod]) {
+                    if (lod > 0) {
+                        const Vec3i child_origin{position.x * 2, position.y * 2, position.z * 2};
+                        bool covered = false;
+                        if (lod - 1 < data.meshes.size()) {
+                            const auto& higher_meshes = data.meshes[lod - 1];
+                            for (int x = 0; x < 2 && !covered; ++x)
+                                for (int y = 0; y < 2 && !covered; ++y)
+                                    for (int z = 0; z < 2; ++z)
+                                        covered &= higher_meshes.contains(
+                                            {child_origin.x + x, child_origin.y + y, child_origin.z + z});
+                        }
+                        if (covered) continue;
+                    }
+
+                    if (position.x < 0 || position.y < 0 || position.z < 0) {
+                        run_once console.log << "Rendering chunk LOD=" << lod
+                                             << " at negative coordinates: " << position.x << ", " << position.y << ", "
+                                             << position.z;
+                    }
+
+                    const float scale = std::ldexp(1.0f, static_cast<int>(lod));
+                    const float chunk_x = static_cast<float>(position.x) * static_cast<float>(CHUNK_SIZE) * scale;
+                    const float chunk_y = static_cast<float>(position.y) * static_cast<float>(CHUNK_SIZE) * scale;
+                    const float chunk_z = static_cast<float>(position.z) * static_cast<float>(CHUNK_SIZE) * scale;
+                    vertex_count += mesh.size();
+                    for (const auto& vertex : mesh) {
+                        vertices.insert(vertices.end(), {
+                                                            chunk_x + vertex.x / 16.0f * scale,
+                                                            chunk_y + vertex.y / 16.0f * scale,
+                                                            chunk_z + vertex.z / 16.0f * scale,
+                                                            vertex.lighting / 65535.0f,
+                                                            vertex.lighting / 65535.0f,
+                                                            vertex.lighting / 65535.0f,
+                                                            static_cast<float>(vertex.u),
+                                                            static_cast<float>(vertex.v),
+                                                        });
+                    }
+                }
             }
         }
 
-        shaderProgram.use();
+        shader_program.use();
         texture.bind();
         glUniformMatrix4fv(view_projection_location, 1, GL_FALSE, glm::value_ptr(view_projection));
-        glUniform2f(atlas_size_location, static_cast<float>(atlas->image.width), static_cast<float>(atlas->image.height));
+        glUniform2f(
+            atlas_size_location, static_cast<float>(atlas->image.width), static_cast<float>(atlas->image.height));
         if (!vertices.empty()) {
             vao.bind();
             vbo.bind();
@@ -211,18 +176,10 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / 8));
         }
 
-        // Removable origin marker for camera and chunk-coordinate debugging.
-        debug_vao.bind();
-        debug_vbo.bind();
-        glDrawArrays(GL_LINE_LOOP, 0, 4);
-
-        for (auto& render_chunk : render_chunks) {
-            std::shared_lock chunks_lock(parent->world->chunks_mutex);
-            auto chunk = parent->world->chunks.find(render_chunk.position);
-            if (chunk == parent->world->chunks.end()) continue;
-            std::unique_lock chunk_lock(chunk->second.mutex);
-            if (chunk->second.mesh.empty()) chunk->second.mesh = std::move(render_chunk.mesh);
-        }
+        run_limited(0.5) console.info << "Triangle count: " << vertex_count / 3 << "\nFPS: "
+                                      << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
+                                      << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z;
     }
+
     void quit() override {}
 } REGISTER_MOD(TestRenderer, MainWorldRenderer);

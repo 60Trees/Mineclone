@@ -78,10 +78,13 @@ struct Player : Entity {
     }
 
     Player(const Player& other) : Entity(other) {}
-    Player(std::string id) : Entity(id, EntityControls({}, update_controls)) {}
+    Player(std::string id) : Entity(id, EntityControls({}, update_controls)) {
+        pos.y = 24.0;
+        pitch = -30.0;
+    }
     Player(const nlohmann::json& data, Application& app) : Entity(data, app) { controls.tick_func = update_controls; }
 
-    double camera_priority(Application&) const override { return flags.contains(""); }
+    double camera_priority(Application&) const override { return 1.0; }
 } REGISTER_ENTITY(Player, "minecraft:player");
 
 struct PlayerSpawner : triolib::Module {

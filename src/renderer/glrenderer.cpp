@@ -34,7 +34,7 @@ struct MainGlRendererImpl : MainGlRenderer {
 
 #ifndef __EMSCRIPTEN__
         const int loaded = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
-        opengl::gl_log << "Glad return val: " << loaded;
+        if (DO_GL_DEBUG) opengl::gl_log << "Desktop Glad GL Debugging enabled.\nGlad return val: " << loaded;
 #endif
 
 #ifdef DO_GL_DEBUG

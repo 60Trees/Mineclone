@@ -46,6 +46,7 @@ using uint = unsigned int;  // emscripten doesn't have `uint`
 
 extern bool before_main;
 extern std::vector<std::string> args;
+extern std::vector<std::function<void()>> run_on_main;
 std::string_view load_asset(const std::string& path);
 
 enum BuildType : unsigned char {
@@ -89,6 +90,18 @@ std::string prettify_json(
 #define tImplClass(parent) __tImplClass(parent) public:
 
 namespace triolib {
+    struct TriolibError : std::invalid_argument {
+        using std::invalid_argument::invalid_argument;
+    };
+
+    struct DoesNotExist : TriolibError {
+        using TriolibError::TriolibError;
+    };
+
+    struct WrongType : TriolibError {
+        using TriolibError::TriolibError;
+    };
+
     struct BaseClass {
         virtual ~BaseClass() = default;
         virtual void init() = 0;
@@ -188,7 +201,7 @@ namespace triolib {
         template <typename T>
         T& getmod() {
             if (auto* result = find_mod<T>()) return *result;
-            throw std::logic_error("SubApp module does not exist: " + std::string(typeid(T).name()));
+            throw DoesNotExist("SubApp module does not exist: " + std::string(typeid(T).name()));
         }
         template <typename T>
         T* find_mod() {
@@ -244,11 +257,11 @@ namespace triolib {
         template <typename T>
         T& get_subapp(const std::string& subappname) {
             SubApp* subapp = get_subapp_ptr<T>(subappname);
-            if (!subapp) throw std::logic_error("Application subapp does not exist: " + subappname);
+            if (!subapp) throw DoesNotExist("Application subapp does not exist: " + subappname);
             T* retval = dynamic_cast<T*>(subapp);
             if (!retval)
-                throw std::logic_error("Application subapp " + subappname + " (of type " + subapp->vname() +
-                                       ") is not of type " + T::sname());
+                throw WrongType("Application subapp " + subappname + " (of type " + subapp->vname() +
+                                ") is not of type " + T::sname());
             return *retval;
         }
 
@@ -293,7 +306,11 @@ namespace triolib {
 
 #define __concat(x, y) x##y
 #define _concat(x, y) __concat(x, y)
-#define run_before_main \
+#define run_before_main                                 \
+    /**                                                 \
+     * @brief Runs a function before the main function. \
+     * @note DO NOT RUN IN A HEADER FILE.               \
+     */                                                 \
     static ::triolib::detail::RunBeforeMain _concat(__RUN_BEFORE_MAIN, __COUNTER__) = ::triolib::detail::FuncAdd{} + []
 #define REGISTER_APP(classname) \
     ;                           \
@@ -362,6 +379,13 @@ namespace triolib {
             return false;                                                                                           \
         }())
 
+#define __ /**                                                                                                      \
+            * DO NOT USE IN HEADER FILES. EVER.                                                                     \
+            * Rust-style no name discardable variables, e.g `int __ = 5;` will keep it in scope as if it's a normal \
+            * variable.                                                                                             \
+            */                                                                                                      \
+    _concat(_concat(_unique_name_, __COUNTER__), __LINE__)
+
 extern struct Console {
     bool enabled;
     logger::Logger log, info, warn, err, debug;
@@ -370,4 +394,3 @@ extern struct Console {
     static logger::Logger title(std::string_view title);
     static logger::Logger generate_from_ostream(std::ostream& ostream);
 } console;
-

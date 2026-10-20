@@ -7,8 +7,33 @@
 #include <thread>
 #include <mutex>
 
+Tile TileNull = {0, 0};
+
 using namespace std;
 using namespace triolib;
+
+RawChunk::RawChunk(const RawChunk& other) : single_tile(other.single_tile) {
+    if (other.array_chunk) {
+        array_chunk = std::make_unique<Data>();
+        array_chunk->data = other.array_chunk->data;
+    }
+}
+
+RawChunk::RawChunk(RawChunk&&) = default;
+
+RawChunk& RawChunk::operator=(RawChunk&& other) {
+    if (this == &other) return *this;
+    array_chunk = std::move(other.array_chunk);
+    single_tile = other.single_tile;
+    return *this;
+}
+
+RawChunk& RawChunk::operator=(const RawChunk& other) {
+    if (this == &other) return *this;
+    RawChunk copy(other);
+    *this = std::move(copy);
+    return *this;
+}
 
 struct WorldImpl : World, Poller {
     tImplClass(World);
@@ -45,37 +70,70 @@ struct ChunkMeshLoop : World::Module {
     /// @return true If the mesher loop found work
     /// @return false If the mesher loop found no work
     bool meshloop() {
-        std::vector<UnlockedChunk> chunks_to_mesh;
-        std::vector<Vec3i> positions_to_mesh;
+        std::vector<std::map<Vec3i, std::vector<BlockVertex>>> meshes;
+
+        std::vector<std::map<Vec3i, RawChunk>> chunks_to_mesh;
+        {
+            auto& data = world->mesh_data;
+            std::lock_guard __(data.chunks_to_mesh_mutex);
+            if (data.chunks_to_mesh.empty()) return false;
+            for (PosLodLevel lod = 0; lod < data.chunks_to_mesh.size(); ++lod) {
+                std::map<Vec3i, RawChunk> lod_chunks_to_mesh;
+                for (const auto& [pos, chunk] : data.chunks_to_mesh[lod]) {
+                    lod_chunks_to_mesh[pos] = std::move(chunk);
+                }
+                chunks_to_mesh.push_back(std::move(lod_chunks_to_mesh));
+            }
+            data.chunks_to_mesh.clear();
+            if (chunks_to_mesh.empty()) return false;
+        }
+
+        auto& mesher = parent->getmod<ChunkMesher>();
+
+        // mesher.mesh({pos, lod}, RawChunk&) -> std::vector<BlockVertex>
+        for (PosLodLevel lod = 0; lod < chunks_to_mesh.size(); ++lod) {
+            meshes.push_back({});
+            for (const auto& [pos, chunk] : chunks_to_mesh[lod]) {
+                const auto sample = [&](int x, int y, int z) {
+                    Vec3i neighbor_pos = pos;
+                    while (x < 0) {
+                        x += static_cast<int>(CHUNK_SIZE);
+                        --neighbor_pos.x;
+                    }
+                    while (x >= static_cast<int>(CHUNK_SIZE)) {
+                        x -= static_cast<int>(CHUNK_SIZE);
+                        ++neighbor_pos.x;
+                    }
+                    while (y < 0) {
+                        y += static_cast<int>(CHUNK_SIZE);
+                        --neighbor_pos.y;
+                    }
+                    while (y >= static_cast<int>(CHUNK_SIZE)) {
+                        y -= static_cast<int>(CHUNK_SIZE);
+                        ++neighbor_pos.y;
+                    }
+                    while (z < 0) {
+                        z += static_cast<int>(CHUNK_SIZE);
+                        --neighbor_pos.z;
+                    }
+                    while (z >= static_cast<int>(CHUNK_SIZE)) {
+                        z -= static_cast<int>(CHUNK_SIZE);
+                        ++neighbor_pos.z;
+                    }
+                    if (neighbor_pos == pos) return chunk.get(x, y, z);
+                    const auto neighbor = chunks_to_mesh[lod].find(neighbor_pos);
+                    return neighbor == chunks_to_mesh[lod].end() ? TileNull : neighbor->second.get(x, y, z);
+                };
+                meshes[lod][pos] = mesher.mesh({pos, lod}, chunk, sample);
+            }
+        }
 
         {
-            std::shared_lock lock(world->chunks_mutex);
-            for (auto& [pos, chunk] : world->chunks) {
-                std::shared_lock chunk_lock(chunk.mutex);
-                if (chunk.needs_remesh) {
-                    auto raw_chunk = chunk.raw_chunk
-                        ? std::make_unique<RawChunk>(chunk.raw_chunk->data)
-                        : nullptr;
-                    chunks_to_mesh.emplace_back(std::move(raw_chunk), chunk.single_tile);
-                    positions_to_mesh.push_back(pos);
-                }
-            }
-        }
-
-        if (chunks_to_mesh.empty()) return false;
-        for (size_t i = 0; i < chunks_to_mesh.size(); ++i) {
-            mesher->mesh(positions_to_mesh[i], chunks_to_mesh[i]);
-        }
-
-        std::shared_lock lock(world->chunks_mutex);
-        for (auto& [pos, chunk] : world->chunks) {
-            std::unique_lock chunk_lock(chunk.mutex);
-            for (size_t i = 0; i < positions_to_mesh.size(); ++i) {
-                if (positions_to_mesh[i] == pos) {
-                    chunk.mesh = std::move(chunks_to_mesh[i].mesh);
-                    chunk.needs_remesh = false;
-                }
-            }
+            auto& data = world->mesh_data;
+            std::unique_lock __(data.meshes_mutex);
+            if (data.meshes.size() < meshes.size()) data.meshes.resize(meshes.size());
+            for (PosLodLevel lod = 0; lod < meshes.size(); ++lod)
+                for (auto& [pos, mesh] : meshes[lod]) data.meshes[lod][pos] = std::move(mesh);
         }
 
         return true;

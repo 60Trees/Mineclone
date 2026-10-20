@@ -35,9 +35,11 @@ std::string_view load_asset(const std::string& path) {
 
 bool before_main = true;
 std::vector<std::string> args = {};
+std::vector<std::function<void()>> run_on_main = {};
 
 int main(int argc, char** argv) {
     before_main = false;
+    for (auto& func : run_on_main) func();
 
     args = std::vector<std::string>(argv + 1, argv + argc);
 
