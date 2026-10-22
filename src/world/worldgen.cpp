@@ -10,10 +10,6 @@ struct WorldGenImpl : WorldGen {
         // growing sine waves to show off how big terrain can get (infinite render distance, infinite height minecraft
         // clone). Kind of like the player is in this giant bumpy basin
 
-        if (index.pos.x < 0 || index.pos.y < 0 || index.pos.z < 0)
-            run_once console.log << "Generating chunk at negative coordinates: " << index.pos.x << ", " << index.pos.y
-                                 << ", " << index.pos.z;
-
         RawChunk retval;
 
         BlockRegistry& block_registry = reglist.getmod<BlockRegistry>();
@@ -29,11 +25,11 @@ struct WorldGenImpl : WorldGen {
                 int world_x = index.pos.x * CHUNK_SIZE * scalar + x * scalar;
                 int world_z = index.pos.z * CHUNK_SIZE * scalar + z * scalar;
 
-                double height = 0;
+                double height = std::sin(world_x * 0.001) * std::cos(world_z * 0.001) * 1000;
 
-                for (int i = 1; i < 100; i *= 2) {
-                    float frequency = 1.0f / (i * 100.0f);
-                    float amplitude = 100.0f / i;
+                for (int i = 1; i < 10; i += 1) {
+                    float frequency = 1.0f / (i * 50.0f);
+                    float amplitude = 10.0f * i;
 
                     height += std::sin(world_x * frequency) * std::cos(world_z * frequency) * amplitude;
                 }

@@ -1,10 +1,19 @@
 #pragma once
 
+#include <array>
+#include <atomic>
+#include <functional>
+#include <map>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
+#include <vector>
 #include <shared_mutex>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
+#include <numbers>
 #include <glm/detail/qualifier.hpp>
 #include <glm/ext/vector_float4.hpp>
 #include <glm/vec4.hpp>
@@ -41,6 +50,12 @@ struct Vec3i {
     };
     // </AI>
 };
+
+/// Neighbour order used everywhere (matches ChunkMesher::mesh): down, up, north, south, west, east.
+/// `i ^ 1` is always the opposite direction.
+inline constexpr std::array<Vec3i, 6> CHUNK_NEIGHBOR_OFFSETS{{
+    {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0},
+}};
 
 struct Tile {
     RegistryUint id = RegistryNull;
@@ -178,6 +193,15 @@ struct Chunk : RawChunk {
         RawChunk::operator=(std::move(other));
         return *this;
     }
+
+    /// Written by the loader under `Level::mutex` (unique), read under `Level::mutex` (shared).
+    /// `true` means "a mesh for this chunk should be published".
+    bool rendered = false;
+
+    /// Bit `i` set => the neighbour at CHUNK_NEIGHBOR_OFFSETS[i] did not exist when this chunk was last meshed.
+    /// Set by the mesher while it holds the level lock; read by the loader when a chunk is inserted, so that
+    /// chunks that were meshed against missing neighbours get re-meshed exactly once when the neighbour shows up.
+    std::atomic<uint8_t> mesh_missing_neighbors{0};
 };
 
 /// @brief A group of chunks at the same LOD level.
@@ -205,12 +229,8 @@ struct Level {
         std::shared_lock lockguard(mutex);
         return chunks[pos];
     }
-    inline const Chunk& operator[](const Vec3i& pos) const {
-        return chunks.at(pos);
-    }
-    inline bool contains(const Vec3i& pos) const {
-        return chunks.contains(pos);
-    }
+    inline const Chunk& operator[](const Vec3i& pos) const { return chunks.at(pos); }
+    inline bool contains(const Vec3i& pos) const { return chunks.contains(pos); }
     inline bool contains(const Vec3i& pos, bool lock = false) {
         if (!lock) return chunks.contains(pos);
         std::shared_lock lockguard(mutex);
@@ -308,16 +328,52 @@ struct World : triolib::SubApp {
 
     std::map<RawRegistryEntry, RegistryUint> needed_registry_ids{};
 
+    /**
+     * @brief Pending mesh requests + published meshes.
+     *
+     * Lock order (acquire left to right only):
+     *     levels_mutex -> Level::mutex -> chunks_to_mesh_mutex -> meshes_mutex
+     * The renderer only ever takes meshes_mutex (shared) and never anything from the left.
+     *
+     * Invariant: a mesh is published for (lod,pos) only while that chunk exists AND `rendered` is true.
+     * The loader upholds it by calling drop_mesh() under the level lock whenever it clears `rendered`
+     * or erases the chunk; the mesher upholds it by re-checking under the level lock before publishing.
+     */
     struct MeshData {
-        inline void needs_mesh(Vec3i pos, PosLodLevel lod, const Chunk& chunk) {
-            std::lock_guard __(chunks_to_mesh_mutex);
+        /// Immutable once published, so the renderer can hold a reference without holding a lock.
+        using Mesh = std::shared_ptr<const std::vector<BlockVertex>>;
+        using MeshMap = std::unordered_map<Vec3i, Mesh, Vec3i::Vec3iHash>;
+
+        /// Queue (or re-queue) a chunk for meshing.
+        inline void ensure_mesh(Vec3i pos, PosLodLevel lod) {
+            std::lock_guard lock(chunks_to_mesh_mutex);
             if (chunks_to_mesh.size() <= lod) chunks_to_mesh.resize(lod + 1);
-            chunks_to_mesh[lod][pos] = chunk;
+            chunks_to_mesh[lod].insert(pos);
         }
-        std::vector<std::map<Vec3i, RawChunk>> chunks_to_mesh;
+
+        /// Forget a chunk completely: pending request AND published mesh.
+        inline void drop_mesh(Vec3i pos, PosLodLevel lod) {
+            {
+                std::lock_guard lock(chunks_to_mesh_mutex);
+                if (lod < chunks_to_mesh.size()) chunks_to_mesh[lod].erase(pos);
+            }
+            std::unique_lock lock(meshes_mutex);
+            if (lod < meshes.size() && meshes[lod].erase(pos) > 0) ++version;
+        }
+
+        inline void publish_mesh(Vec3i pos, PosLodLevel lod, Mesh mesh) {
+            std::unique_lock lock(meshes_mutex);
+            if (meshes.size() <= lod) meshes.resize(lod + 1);
+            meshes[lod][pos] = std::move(mesh);
+            ++version;
+        }
+
+        std::vector<std::set<Vec3i>> chunks_to_mesh;
         std::mutex chunks_to_mesh_mutex;
-        std::vector<std::map<Vec3i, std::vector<BlockVertex>>> meshes;
+        std::vector<MeshMap> meshes;
         std::shared_mutex meshes_mutex;
+        /// Bumped (under meshes_mutex) whenever the set of published meshes changes.
+        std::atomic<uint64_t> version{0};
     } mesh_data;
 
     BigPos offset;
@@ -335,14 +391,52 @@ struct World : triolib::SubApp {
     /// For example: Center goes above y=1000, everything moves 1000 units
     /// down, offset.y += 1000
     Camera camera;
+    std::shared_mutex camera_mutex;
 
-    inline Vec3i camchunk(PosLodLevel lod) const {
-        double scalar = 1.0 / CHUNK_SIZE / std::pow(2, lod);
+    inline Vec3i camchunk(PosLodLevel lod) {
+        const double scalar = 1.0 / static_cast<double>(CHUNK_SIZE) / std::pow(2, lod);
+        std::shared_lock __(camera_mutex);
         return Vec3i{
             static_cast<int>(std::floor(camera.x * scalar)),
             static_cast<int>(std::floor(camera.y * scalar)),
             static_cast<int>(std::floor(camera.z * scalar)),
         };
+    }
+
+    inline bool chunk_in_fov(Vec3i pos, PosLodLevel lod, double aspect_ratio = 2.0) const {
+        const double scale = std::ldexp(1.0, static_cast<int>(lod));
+        const double chunk_size = static_cast<double>(CHUNK_SIZE) * scale;
+        const double half_extent = chunk_size * 0.5;
+        const double radius = std::sqrt(3.0) * half_extent;
+        const double yaw = camera.yaw * std::numbers::pi / 180.0;
+        const double pitch = camera.pitch * std::numbers::pi / 180.0;
+        const double cos_pitch = std::cos(pitch);
+
+        const std::array<double, 3> forward{
+            cos_pitch * std::cos(yaw),
+            std::sin(pitch),
+            cos_pitch * std::sin(yaw),
+        };
+        const std::array<double, 3> right{std::sin(yaw), 0.0, -std::cos(yaw)};
+        const std::array<double, 3> up{
+            right[1] * forward[2] - right[2] * forward[1],
+            right[2] * forward[0] - right[0] * forward[2],
+            right[0] * forward[1] - right[1] * forward[0],
+        };
+        const std::array<double, 3> center{
+            (static_cast<double>(pos.x) + 0.5) * chunk_size - camera.x,
+            (static_cast<double>(pos.y) + 0.5) * chunk_size - camera.y,
+            (static_cast<double>(pos.z) + 0.5) * chunk_size - camera.z,
+        };
+        const auto dot = [](const std::array<double, 3>& a, const std::array<double, 3>& b) {
+            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        };
+        const double depth = dot(center, forward);
+        const double tan_vertical_fov = std::tan(35.0 * std::numbers::pi / 180.0);
+        const double tan_horizontal_fov = tan_vertical_fov * aspect_ratio;
+
+        return depth + radius >= 0.0 && std::abs(dot(center, right)) <= depth * tan_horizontal_fov + radius &&
+               std::abs(dot(center, up)) <= depth * tan_vertical_fov + radius;
     }
 
     struct Module : triolib::Module {
@@ -385,8 +479,9 @@ struct World : triolib::SubApp {
 struct ChunkMesher : World::Module {
     tClass;
 
-    virtual std::vector<BlockVertex> mesh(
-        World::ChunkIndex i, const RawChunk& chunk, const std::function<Tile(int, int, int)>& sample) = 0;
+    virtual std::vector<BlockVertex> mesh(World::ChunkIndex i, const RawChunk& chunk, const RawChunk* down,
+        const RawChunk* up, const RawChunk* north, const RawChunk* south, const RawChunk* west,
+        const RawChunk* east) = 0;
 
     void init() override {}
     void loop() override {}

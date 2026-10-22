@@ -14,6 +14,7 @@ struct Player : Entity {
     double err_margin = 0.1;
     double speed = 2;
     double sensitivity = 0.5;
+    double increased_speed = 10;
 
     nlohmann::json dump(Application& app) const override {
         nlohmann::json j = Entity::dump(app);
@@ -40,8 +41,14 @@ struct Player : Entity {
         Entity::tick_controls(app);
         const auto dt = app.getmod<FpsHandler>().dt;
 
-        pos.y += controls.input["jump"].pressure * dt;
-        pos.y -= controls.input["sneak"].pressure * dt;
+        if (controls.input["sprint"])
+            increased_speed += increased_speed * 2.0 * dt;
+        else
+            increased_speed = speed;
+        double this_speed = speed * (controls.input["sprint"] ? increased_speed : 1);
+
+        pos.y += controls.input["jump"].pressure * dt * this_speed;
+        pos.y -= controls.input["sneak"].pressure * dt * this_speed;
 
         {
             double up = controls.input["look_up"].pressure - controls.input["look_down"].pressure;
@@ -72,8 +79,8 @@ struct Player : Entity {
             double rad_yaw = glm::radians(yaw);
             double s = glm::sin(rad_yaw), c = glm::cos(rad_yaw);
 
-            pos.x += (forward * c - right * s) * speed * dt;
-            pos.z += (forward * s + right * c) * speed * dt;
+            pos.x += (forward * c - right * s) * this_speed * dt;
+            pos.z += (forward * s + right * c) * this_speed * dt;
         }
     }
 

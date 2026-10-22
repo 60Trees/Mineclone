@@ -329,18 +329,114 @@ namespace triolib {
 #define REGISTER_MOD(...) \
     TRIOLIB_REGISTER_MOD_SELECT(__VA_ARGS__, TRIOLIB_REGISTER_MOD_2, TRIOLIB_REGISTER_MOD_1)(__VA_ARGS__)
 
+#define tassert(to_check)                                                                \
+    do {                                                                                 \
+        if (!(to_check)) throw std::runtime_error("Assert `" #to_check "` has failed."); \
+    } while (0)
 #define tassertmsg(to_check, msg)                                                                            \
     do {                                                                                                     \
         if (!(to_check)) throw std::runtime_error("Assert `" #to_check "` has failed: " + std::string(msg)); \
+    } while (0)
+#define tasserterr(to_check, err)                                         \
+    do {                                                                  \
+        if (!(to_check)) throw err("Assert `" #to_check "` has failed."); \
     } while (0)
 #define tassertmsgerr(to_check, msg, err)                                                     \
     do {                                                                                      \
         using namespace std;                                                                  \
         if (!(to_check)) throw err("Assert `" #to_check "` has failed: " + std::string(msg)); \
     } while (0)
-#define tassert(to_check)                                                                \
-    do {                                                                                 \
-        if (!(to_check)) throw std::runtime_error("Assert `" #to_check "` has failed."); \
+#define tassertdo(to_check, action)                          \
+    do {                                                     \
+        if (!(to_check)) {                                   \
+            {                                                \
+                action;                                      \
+            }                                                \
+            throw err("Assert `" #to_check "` has failed."); \
+        }                                                    \
+    } while (0)
+#define tassertdoerr(to_check, action, err)                  \
+    do {                                                     \
+        if (!(to_check)) {                                   \
+            {                                                \
+                action;                                      \
+            }                                                \
+            throw err("Assert `" #to_check "` has failed."); \
+        }                                                    \
+    } while (0)
+#define tassertdomsg(to_check, action, msg)                                                     \
+    do {                                                                                        \
+        if (!(to_check)) {                                                                      \
+            {                                                                                   \
+                action;                                                                         \
+            }                                                                                   \
+            throw std::runtime_error("Assert `" #to_check "` has failed: " + std::string(msg)); \
+        }                                                                                       \
+    } while (0)
+#define tassertdomsgerr(to_check, action, msg, err)                              \
+    do {                                                                         \
+        if (!(to_check)) {                                                       \
+            {                                                                    \
+                action;                                                          \
+            }                                                                    \
+            throw err("Assert `" #to_check "` has failed: " + std::string(msg)); \
+        }                                                                        \
+    } while (0)
+
+#define twarnif(to_check)                                                    \
+    do {                                                                     \
+        if (!(to_check)) console.err << "Check `" #to_check "` has failed."; \
+    } while (0)
+#define twarnifmsg(to_check, msg)                                                    \
+    do {                                                                             \
+        if (!(to_check)) console.err << "Check `" #to_check "` has failed: " << msg; \
+    } while (0)
+#define twarniflogger(to_check, logger)                                              \
+    do {                                                                             \
+        if (!(to_check)) console.err << "Check `" #to_check "` has failed: " << log; \
+    } while (0)
+#define twarnifmsglogger(to_check, msg, logger)                                                     \
+    do {                                                                                            \
+        if (!(to_check)) console.err << "Check `" #to_check "` has failed: " << msg << ": " << log; \
+    } while (0)
+#define twarnifdo(to_check, action)                             \
+    do {                                                        \
+        if (!(to_check)) {                                      \
+            console.err << "Check `" #to_check "` has failed."; \
+            {                                                   \
+                action;                                         \
+            }                                                   \
+        }                                                       \
+    } while (0)
+#define twarnifdoerr(to_check, action, err)                     \
+    do {                                                        \
+        if (!(to_check)) {                                      \
+            console.err << "Check `" #to_check "` has failed."; \
+            {                                                   \
+                action;                                         \
+            }                                                   \
+            throw err("Check `" #to_check "` has failed.");     \
+        }                                                       \
+    } while (0)
+#define twarnifdomsg(to_check, action, msg)                                                    \
+    do {                                                                                       \
+        if (!(to_check)) {                                                                     \
+            console.err << "Check `" #to_check "` has failed: " << msg;                        \
+            {                                                                                  \
+                action;                                                                        \
+            }                                                                                  \
+            throw std::runtime_error("Check `" #to_check "` has failed: " + std::string(msg)); \
+        }                                                                                      \
+    } while (0)
+#define twarnifdomsgerr(to_check, action, msg, err)                             \
+    do {                                                                        \
+        if (!(to_check)) {                                                      \
+            console.err << "Check `" #to_check "` has failed: " << msg;         \
+            {                                                                   \
+                action;                                                         \
+            }                                                                   \
+            throw err("Check `" #to_check "` has failed: " + std::string(msg)); \
+        }                                                                       \
     } while (0)
 
 #if BUILD_TYPE <= BUILD_TYPE_RELWITHDEBINFO

@@ -7,6 +7,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <shared_mutex>
+#include <unordered_map>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <span>
@@ -23,6 +26,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
     const ResourceHandler::Resources::Atlas* atlas = nullptr;
     GLint view_projection_location = -1;
     GLint atlas_size_location = -1;
+    GLint camera_position_location = -1;
 
     constexpr static std::string_view vertex_shader_source = R"(
         layout (location = 0) in vec3 aPos;
@@ -31,6 +35,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
 
         out vec3 ourColor;
         out vec2 TexCoord;
+        out vec3 WorldPosition;
         uniform mat4 viewProjection;
         uniform vec2 atlasSize;
 
@@ -38,20 +43,81 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             gl_Position = viewProjection * vec4(aPos, 1.0);
             ourColor = aColor;
             TexCoord = aTexCoord / atlasSize;
+            WorldPosition = aPos;
         })";
     constexpr static std::string_view fragment_shader_source = R"(
         out vec4 FragColor;
         in vec3 ourColor;
         in vec2 TexCoord;
+        in vec3 WorldPosition;
+
         uniform sampler2D ourTexture;
+        uniform vec3 cameraPosition;
 
         void main() {
-            FragColor = texture(ourTexture, TexCoord) * vec4(ourColor, 1.0);
+            vec4 blockColor = texture(ourTexture, TexCoord) * vec4(ourColor, 1.0);
+            float logarithmicDistance = log(max(distance(WorldPosition, cameraPosition) * 10.0, 1.0));
+            float fogFactor = (1.0 - exp(-logarithmicDistance / 8.0));
+            FragColor = mix(blockColor, vec4(0.0, 0.0, 0.0, 1.0), fogFactor);
         })";
+
+    struct DrawItem {
+        Vec3i pos;
+        PosLodLevel lod;
+        World::MeshData::Mesh mesh;
+    };
+    /// The meshes that should actually be drawn (LODs already resolved). Only rebuilt when the set of
+    /// published meshes changes; per frame we just frustum-cull it.
+    std::vector<DrawItem> draw_list;
+    uint64_t draw_list_version = UINT64_MAX;
+
+    /// Picks, per region of the world, exactly one LOD to draw:
+    ///  * a chunk is replaced by its finer children only once ALL 8 children are published (the old code hid it
+    ///    as soon as ANY child existed, which punched holes while the finer LOD was still loading);
+    ///  * a finer chunk is hidden while a coarser ancestor is still standing in for its region (otherwise a
+    ///    half-loaded fine group is drawn on top of the coarse chunk -> the LOD overlap).
+    void rebuild_draw_list() {
+        auto& data = parent->world->mesh_data;
+        std::shared_lock lock(data.meshes_mutex);
+        const auto& meshes = data.meshes;
+        draw_list_version = data.version.load();
+        draw_list.clear();
+
+        const auto has = [&](PosLodLevel lod, const Vec3i& p) {
+            return lod < meshes.size() && meshes[lod].contains(p);
+        };
+        const auto children_ready = [&](PosLodLevel lod, const Vec3i& p) {
+            if (lod == 0) return false;
+            for (int i = 0; i < 8; ++i)
+                if (!has(lod - 1, Vec3i{p.x * 2 + (i & 1), p.y * 2 + ((i >> 1) & 1), p.z * 2 + ((i >> 2) & 1)}))
+                    return false;
+            return true;
+        };
+        const auto parent_of = [](const Vec3i& p) { return Vec3i{p.x >> 1, p.y >> 1, p.z >> 1}; };
+
+        // claimed(lod, p): the region of (lod, p) is drawn by that chunk or by one of its ancestors.
+        std::vector<std::unordered_map<Vec3i, bool, Vec3i::Vec3iHash>> memo(meshes.size());
+        const std::function<bool(PosLodLevel, const Vec3i&)> claimed = [&](PosLodLevel lod, const Vec3i& p) -> bool {
+            if (lod >= meshes.size()) return false;
+            if (const auto it = memo[lod].find(p); it != memo[lod].end()) return it->second;
+            const bool result = (has(lod, p) && !children_ready(lod, p)) || claimed(lod + 1, parent_of(p));
+            memo[lod].emplace(p, result);
+            return result;
+        };
+
+        for (PosLodLevel lod = 0; lod < meshes.size(); ++lod)
+            for (const auto& [pos, mesh] : meshes[lod]) {
+                if (children_ready(lod, pos)) continue;          // finer chunks take over
+                if (claimed(lod + 1, parent_of(pos))) continue;  // a coarser chunk still covers this region
+                if (!mesh || mesh->empty()) continue;            // nothing to draw (but it did count as coverage)
+                draw_list.push_back({pos, lod, mesh});
+            }
+    }
 
     void init() override {
         texture.create();
         texture.bind();
+
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -67,22 +133,27 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         vbo.bind();
         vbo.data(nullptr, 0, GL_DYNAMIC_DRAW);
 
-        opengl::Shader vertex_shader(GL_VERTEX_SHADER);
-        vertex_shader.create();
-        vertex_shader.source_from_strview(vertex_shader_source);
-        vertex_shader.compile();
-        opengl::Shader fragment_shader(GL_FRAGMENT_SHADER);
-        fragment_shader.create();
-        fragment_shader.source_from_strview(fragment_shader_source);
-        fragment_shader.compile();
+        {
+            opengl::Shader vertex_shader(GL_VERTEX_SHADER);
+            vertex_shader.create();
+            vertex_shader.source_from_strview(vertex_shader_source);
+            vertex_shader.compile();
+            opengl::Shader fragment_shader(GL_FRAGMENT_SHADER);
+            fragment_shader.create();
+            fragment_shader.source_from_strview(fragment_shader_source);
+            fragment_shader.compile();
 
-        shader_program.create();
-        shader_program.attach(vertex_shader);
-        shader_program.attach(fragment_shader);
-        shader_program.link();
-        shader_program.use();
+            shader_program.create();
+            shader_program.attach(vertex_shader);
+            shader_program.attach(fragment_shader);
+            shader_program.link();
+            shader_program.use();
+            // Shader auto deleted
+        }
+
         view_projection_location = shader_program.get_uniform_location("viewProjection", true);
         atlas_size_location = shader_program.get_uniform_location("atlasSize", true);
+        camera_position_location = shader_program.get_uniform_location("cameraPosition", true);
 
         vao.create();
         vao.bind();
@@ -95,13 +166,21 @@ struct TestRenderer : MainWorldRenderer::Renderer {
     }
 
     void loop() override {
+        auto start = std::chrono::high_resolution_clock::now();
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_GREATER);
+        glClearDepth(0.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         size_t vertex_count = 0;
+        size_t chunk_count = 0;
 
-        const auto& camera = parent->world->camera;
+        Camera camera = [&] {
+            std::shared_lock __(parent->world->camera_mutex);
+            return parent->world->camera;
+        }();
+
         const auto window_size = parent->application->get_subapp<MainRenderer>().window_size();
         const float aspect = static_cast<float>(window_size.x) / static_cast<float>(window_size.y);
         const float pitch = glm::radians(camera.pitch);
@@ -111,56 +190,46 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             std::sin(pitch),
             std::cos(pitch) * std::sin(yaw),
         };
+        const float near_plane = 0.05f;
+        glm::mat4 reverse_infinite_perspective{0.0f};
+        const float tan_half_fov = std::tan(glm::radians(70.0f) * 0.5f);
+        reverse_infinite_perspective[0][0] = 1.0f / (aspect * tan_half_fov);
+        reverse_infinite_perspective[1][1] = 1.0f / tan_half_fov;
+        reverse_infinite_perspective[2][2] = 1.0f;
+        reverse_infinite_perspective[2][3] = -1.0f;
+        reverse_infinite_perspective[3][2] = 2.0f * near_plane;
+        // Everything is submitted camera-relative (computed in double on the CPU), so float precision does not
+        // fall apart for far LODs. Hence the view matrix has no translation.
         const glm::mat4 view_projection =
-            glm::perspective(glm::radians(70.0f), aspect, 0.05f, 4096.0f) *
-            glm::lookAt(glm::vec3(camera.x, camera.y, camera.z), glm::vec3(camera.x, camera.y, camera.z) + direction,
-                glm::vec3(0.0f, 1.0f, 0.0f));
+            reverse_infinite_perspective * glm::lookAt(glm::vec3(0.0f), direction, glm::vec3(0.0f, 1.0f, 0.0f));
+
+        if (parent->world->mesh_data.version.load() != draw_list_version) rebuild_draw_list();
 
         std::vector<float> vertices;
-        {
-            auto& data = parent->world->mesh_data;
-            std::shared_lock meshes_lock(data.meshes_mutex);
-            for (PosLodLevel lod = 0; lod < data.meshes.size(); ++lod) {
-                std::shared_lock levels_lock(parent->world->levels_mutex);
-                for (const auto& [position, mesh] : data.meshes[lod]) {
-                    if (lod > 0) {
-                        const Vec3i child_origin{position.x * 2, position.y * 2, position.z * 2};
-                        bool covered = false;
-                        if (lod - 1 < data.meshes.size()) {
-                            const auto& higher_meshes = data.meshes[lod - 1];
-                            for (int x = 0; x < 2 && !covered; ++x)
-                                for (int y = 0; y < 2 && !covered; ++y)
-                                    for (int z = 0; z < 2; ++z)
-                                        covered &= higher_meshes.contains(
-                                            {child_origin.x + x, child_origin.y + y, child_origin.z + z});
-                        }
-                        if (covered) continue;
-                    }
+        for (const auto& item : draw_list) {
+            if (!parent->world->chunk_in_fov(item.pos, item.lod, aspect)) continue;
 
-                    if (position.x < 0 || position.y < 0 || position.z < 0) {
-                        run_once console.log << "Rendering chunk LOD=" << lod
-                                             << " at negative coordinates: " << position.x << ", " << position.y << ", "
-                                             << position.z;
-                    }
+            ++chunk_count;
+            const double scale = std::ldexp(1.0, static_cast<int>(item.lod));
+            const double extent = static_cast<double>(CHUNK_SIZE) * scale;
+            const double origin_x = item.pos.x * extent - camera.x;
+            const double origin_y = item.pos.y * extent - camera.y;
+            const double origin_z = item.pos.z * extent - camera.z;
+            const double vertex_scale = scale / static_cast<double>(CHUNK_SIZE);
 
-                    const float scale = std::ldexp(1.0f, static_cast<int>(lod));
-                    const float chunk_x = static_cast<float>(position.x) * static_cast<float>(CHUNK_SIZE) * scale;
-                    const float chunk_y = static_cast<float>(position.y) * static_cast<float>(CHUNK_SIZE) * scale;
-                    const float chunk_z = static_cast<float>(position.z) * static_cast<float>(CHUNK_SIZE) * scale;
-                    vertex_count += mesh.size();
-                    for (const auto& vertex : mesh) {
-                        vertices.insert(vertices.end(), {
-                                                            chunk_x + vertex.x / 16.0f * scale,
-                                                            chunk_y + vertex.y / 16.0f * scale,
-                                                            chunk_z + vertex.z / 16.0f * scale,
-                                                            vertex.lighting / 65535.0f,
-                                                            vertex.lighting / 65535.0f,
-                                                            vertex.lighting / 65535.0f,
-                                                            static_cast<float>(vertex.u),
-                                                            static_cast<float>(vertex.v),
-                                                        });
-                    }
-                }
+            vertex_count += item.mesh->size();
+            for (const auto& vertex : *item.mesh) {
+                const float light = vertex.lighting / 65535.0f;
+                vertices.insert(vertices.end(), {
+                                                    static_cast<float>(origin_x + vertex.x * vertex_scale),
+                                                    static_cast<float>(origin_y + vertex.y * vertex_scale),
+                                                    static_cast<float>(origin_z + vertex.z * vertex_scale),
+                                                    light,
+                                                    light,
+                                                    light,
+                                                    static_cast<float>(vertex.u),
+                                                    static_cast<float>(vertex.v),
+                                                });
             }
         }
 
@@ -169,6 +238,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         glUniformMatrix4fv(view_projection_location, 1, GL_FALSE, glm::value_ptr(view_projection));
         glUniform2f(
             atlas_size_location, static_cast<float>(atlas->image.width), static_cast<float>(atlas->image.height));
+        glUniform3f(camera_position_location, 0.0f, 0.0f, 0.0f);  // vertices are camera-relative
         if (!vertices.empty()) {
             vao.bind();
             vbo.bind();
@@ -176,9 +246,16 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / 8));
         }
 
-        run_limited(0.5) console.info << "Triangle count: " << vertex_count / 3 << "\nFPS: "
-                                      << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
-                                      << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z;
+        auto end = std::chrono::high_resolution_clock::now();
+
+        run_limited(0.5) console.info
+            << "Triangle count: " << vertex_count / 3
+            << "\nFPS: " << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
+            << " (Rendering FPS: "
+            << 1.0 / (0.001 * static_cast<double>(
+                                  std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()))
+            << ")"
+            << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z;
     }
 
     void quit() override {}

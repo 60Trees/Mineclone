@@ -4,6 +4,7 @@
 #include <glm/common.hpp>
 #include "triolib.hpp"
 #include <atomic>
+#include <optional>
 #include <thread>
 #include <mutex>
 
@@ -66,76 +67,106 @@ struct ChunkMeshLoop : World::Module {
     tClass;
 
     ChunkMesher* mesher = nullptr;
+    std::atomic_bool done = false;
+    std::thread mesher_thread;
 
-    /// @return true If the mesher loop found work
-    /// @return false If the mesher loop found no work
-    bool meshloop() {
-        std::vector<std::map<Vec3i, std::vector<BlockVertex>>> meshes;
-
-        std::vector<std::map<Vec3i, RawChunk>> chunks_to_mesh;
+    /// Pops the pending chunk that is closest to the camera, measured in chunk widths *of its own LOD*,
+    /// so coarse fallback chunks are not starved by a flood of LOD 0 work.
+    std::optional<World::ChunkIndex> take_next() {
+        Camera cam;
         {
-            auto& data = world->mesh_data;
-            std::lock_guard __(data.chunks_to_mesh_mutex);
-            if (data.chunks_to_mesh.empty()) return false;
-            for (PosLodLevel lod = 0; lod < data.chunks_to_mesh.size(); ++lod) {
-                std::map<Vec3i, RawChunk> lod_chunks_to_mesh;
-                for (const auto& [pos, chunk] : data.chunks_to_mesh[lod]) {
-                    lod_chunks_to_mesh[pos] = std::move(chunk);
+            std::shared_lock camera_lock(world->camera_mutex);
+            cam = world->camera;
+        }
+
+        auto& data = world->mesh_data;
+        std::lock_guard pending_lock(data.chunks_to_mesh_mutex);
+
+        std::optional<World::ChunkIndex> best;
+        double best_score = 0.0;
+        for (PosLodLevel lod = 0; lod < data.chunks_to_mesh.size(); ++lod) {
+            const double size = static_cast<double>(CHUNK_SIZE) * std::ldexp(1.0, static_cast<int>(lod));
+            for (const Vec3i& pos : data.chunks_to_mesh[lod]) {
+                const double dx = ((pos.x + 0.5) * size - cam.x) / size;
+                const double dy = ((pos.y + 0.5) * size - cam.y) / size;
+                const double dz = ((pos.z + 0.5) * size - cam.z) / size;
+                const double score = dx * dx + dy * dy + dz * dz;
+                if (!best || score < best_score) {
+                    best = World::ChunkIndex{pos, lod};
+                    best_score = score;
                 }
-                chunks_to_mesh.push_back(std::move(lod_chunks_to_mesh));
-            }
-            data.chunks_to_mesh.clear();
-            if (chunks_to_mesh.empty()) return false;
-        }
-
-        auto& mesher = parent->getmod<ChunkMesher>();
-
-        // mesher.mesh({pos, lod}, RawChunk&) -> std::vector<BlockVertex>
-        for (PosLodLevel lod = 0; lod < chunks_to_mesh.size(); ++lod) {
-            meshes.push_back({});
-            for (const auto& [pos, chunk] : chunks_to_mesh[lod]) {
-                const auto sample = [&](int x, int y, int z) {
-                    Vec3i neighbor_pos = pos;
-                    while (x < 0) {
-                        x += static_cast<int>(CHUNK_SIZE);
-                        --neighbor_pos.x;
-                    }
-                    while (x >= static_cast<int>(CHUNK_SIZE)) {
-                        x -= static_cast<int>(CHUNK_SIZE);
-                        ++neighbor_pos.x;
-                    }
-                    while (y < 0) {
-                        y += static_cast<int>(CHUNK_SIZE);
-                        --neighbor_pos.y;
-                    }
-                    while (y >= static_cast<int>(CHUNK_SIZE)) {
-                        y -= static_cast<int>(CHUNK_SIZE);
-                        ++neighbor_pos.y;
-                    }
-                    while (z < 0) {
-                        z += static_cast<int>(CHUNK_SIZE);
-                        --neighbor_pos.z;
-                    }
-                    while (z >= static_cast<int>(CHUNK_SIZE)) {
-                        z -= static_cast<int>(CHUNK_SIZE);
-                        ++neighbor_pos.z;
-                    }
-                    if (neighbor_pos == pos) return chunk.get(x, y, z);
-                    const auto neighbor = chunks_to_mesh[lod].find(neighbor_pos);
-                    return neighbor == chunks_to_mesh[lod].end() ? TileNull : neighbor->second.get(x, y, z);
-                };
-                meshes[lod][pos] = mesher.mesh({pos, lod}, chunk, sample);
             }
         }
+        if (best) data.chunks_to_mesh[best->lod].erase(best->pos);
+        return best;
+    }
 
+    void mesh_chunk(const World::ChunkIndex index) {
+        const Vec3i pos = index.pos;
+        const PosLodLevel lod = index.lod;
+
+        std::optional<RawChunk> chunk;
+        std::array<std::optional<RawChunk>, 6> neighbors;
+
+        // 1) Snapshot the chunk and its six neighbours under ONE level lock, so "which neighbours exist" is
+        //    consistent with the loader's insertions (it needs the unique lock to insert).
         {
-            auto& data = world->mesh_data;
-            std::unique_lock __(data.meshes_mutex);
-            if (data.meshes.size() < meshes.size()) data.meshes.resize(meshes.size());
-            for (PosLodLevel lod = 0; lod < meshes.size(); ++lod)
-                for (auto& [pos, mesh] : meshes[lod]) data.meshes[lod][pos] = std::move(mesh);
+            std::shared_lock levels_lock(world->levels_mutex);
+            if (lod >= world->levels.size()) return;
+            Level& level = world->levels[lod];
+            std::shared_lock level_lock(level.mutex);
+
+            const auto it = level.chunks.find(pos);
+            // Unloaded or no longer visible: the loader already dropped the mesh, nothing to do.
+            if (it == level.chunks.end() || !it->second.rendered) return;
+
+            const auto snapshot = [](Chunk& c) {
+                std::shared_lock chunk_lock(c.mutex);
+                return RawChunk(static_cast<const RawChunk&>(c));
+            };
+
+            chunk.emplace(snapshot(it->second));
+            uint8_t missing = 0;
+            for (size_t i = 0; i < neighbors.size(); ++i) {
+                const Vec3i off = CHUNK_NEIGHBOR_OFFSETS[i];
+                const Vec3i npos{pos.x + off.x, pos.y + off.y, pos.z + off.z};
+                const auto nit = level.chunks.find(npos);
+                if (nit == level.chunks.end()) {
+                    missing |= static_cast<uint8_t>(1u << i);
+                    continue;
+                }
+                neighbors[i].emplace(snapshot(nit->second));
+            }
+            // Missing neighbours are meshed as air so the chunk shows up immediately; the loader re-queues this
+            // chunk when one of them is generated (see WorldLoaderImpl::loop_thread).
+            it->second.mesh_missing_neighbors.store(missing);
         }
 
+        // 2) Mesh without holding any lock.
+        const auto ptr = [&](size_t i) -> const RawChunk* { return neighbors[i] ? &*neighbors[i] : nullptr; };
+        auto vertices = mesher->mesh(index, *chunk, ptr(0), ptr(1), ptr(2), ptr(3), ptr(4), ptr(5));
+        vertices.shrink_to_fit();
+        auto mesh = std::make_shared<const std::vector<BlockVertex>>(std::move(vertices));
+
+        // 3) Publish only if the chunk is *still* visible. Checked under the same lock the loader uses to clear
+        //    `rendered` + drop the mesh, so a stale mesh can never be published after a drop.
+        {
+            std::shared_lock levels_lock(world->levels_mutex);
+            if (lod >= world->levels.size()) return;
+            Level& level = world->levels[lod];
+            std::shared_lock level_lock(level.mutex);
+            const auto it = level.chunks.find(pos);
+            if (it == level.chunks.end() || !it->second.rendered) return;
+            world->mesh_data.publish_mesh(pos, lod, std::move(mesh));
+        }
+    }
+
+    /// @return true If a chunk was processed
+    /// @return false If there was no work
+    bool meshloop() {
+        const auto next = take_next();
+        if (!next) return false;
+        mesh_chunk(*next);
         return true;
     }
 
@@ -143,12 +174,17 @@ struct ChunkMeshLoop : World::Module {
         World::Module::init();
         mesher = &world->getmod<ChunkMesher>();
         mesher_thread = std::thread{[this]() {
-            while (!done)
-                if (!meshloop()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            while (!done) {
+                bool worked = false;
+                try {
+                    worked = meshloop();
+                } catch (const std::exception& e) {
+                    run_limited(1) console.log << "Mesher error: " << e.what();
+                }
+                if (!worked) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
         }};
     }
-    std::atomic_bool done = false;
-    std::thread mesher_thread;
     void loop() override {}
     void quit() override {
         done = true;

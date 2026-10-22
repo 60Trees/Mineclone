@@ -12,6 +12,7 @@ struct ControlsImpl : Controls {
         controls["right"] = std::make_unique<KbPushCtl>(*input_handler, SDL_SCANCODE_D);
         controls["jump"] = std::make_unique<KbPushCtl>(*input_handler, SDL_SCANCODE_SPACE);
         controls["sneak"] = std::make_unique<KbPushCtl>(*input_handler, SDL_SCANCODE_LSHIFT);
+        controls["sprint"] = std::make_unique<KbPushCtl>(*input_handler, SDL_SCANCODE_R);
         controls["look_up"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::UP);
         controls["look_down"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::DOWN);
         controls["look_left"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::LEFT);
