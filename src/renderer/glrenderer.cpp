@@ -75,10 +75,8 @@ struct MainGlRendererImpl : MainGlRenderer {
     }
 
     void loop() override {
-        int width = 0;
-        int height = 0;
-        SDL_GetWindowSizeInPixels(window, &width, &height);
-        glViewport(0, 0, width, height);
+        SDL_GetWindowSizeInPixels(window, &size.x, &size.y);
+        glViewport(0, 0, size.x, size.y);
 
         SubApp::loop();
 

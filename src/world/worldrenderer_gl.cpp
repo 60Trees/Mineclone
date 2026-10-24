@@ -17,6 +17,9 @@
 struct TestRenderer : MainWorldRenderer::Renderer {
     tClass;
 
+    /// pos(3) + light(1) + tileUV(2) + tileRect(4)
+    static constexpr size_t FLOATS_PER_VERTEX = 10;
+
     opengl::VBO vbo;
     opengl::VAO vao;
     opengl::ShaderProgram shader_program;
@@ -99,6 +102,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
 
         for (PosLodLevel lod = 0; lod < meshes.size(); ++lod)
             for (const auto& [pos, mesh] : meshes[lod]) {
+                if (mesh->empty()) continue;
                 if (children_ready(lod, pos)) continue;          // finer chunks take over
                 if (claimed(lod + 1, parent_of(pos))) continue;  // a coarser chunk still covers this region
                 if (!mesh || mesh->empty()) continue;            // nothing to draw (but it did count as coverage)
@@ -151,23 +155,21 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         atlas_size_location = shader_program.get_uniform_location("atlasSize", true);
         camera_position_location = shader_program.get_uniform_location("cameraPosition", true);
 
+        constexpr GLsizei stride = FLOATS_PER_VERTEX * sizeof(float);
         vao.create();
         vao.bind();
-        vao.vertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), 0);
+        vao.vertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, 0);  // aPos
         vao.enableAttribute(0);
-        vao.vertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), 3 * sizeof(float));
+        vao.vertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, stride, 3 * sizeof(float));  // aLight
         vao.enableAttribute(1);
-        vao.vertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), 6 * sizeof(float));
+        vao.vertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, 4 * sizeof(float));  // aTileUV (0..repeat)
         vao.enableAttribute(2);
+        vao.vertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, 6 * sizeof(float));  // aTileRect (u, v, w, h px)
+        vao.enableAttribute(3);
     }
 
     void loop() override {
         auto start = std::chrono::high_resolution_clock::now();
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glEnable(GL_DEPTH_TEST);
-        glDepthFunc(GL_GREATER);
-        glClearDepth(0.0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         size_t chunk_count = 0;
 
@@ -177,6 +179,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         }();
 
         const auto window_size = parent->application->get_subapp<MainRenderer>().window_size();
+        run_limited(0.5) console.info << "Window size: " << window_size.x << "x" << window_size.y;
         ensure_framebuffer(window_size.x, window_size.y);  // use real pixel size if HiDPI differs
 
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -225,17 +228,19 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             const double origin_z = item.pos.z * extent - camera.z;
             const double vertex_scale = scale / static_cast<double>(CHUNK_SIZE);
 
+            vertices.reserve(vertices.size() + item.mesh->size() * FLOATS_PER_VERTEX);
             for (const auto& vertex : *item.mesh) {
-                const float light = vertex.lighting / 65535.0f;
                 vertices.insert(vertices.end(), {
                                                     static_cast<float>(origin_x + vertex.x * vertex_scale),
                                                     static_cast<float>(origin_y + vertex.y * vertex_scale),
                                                     static_cast<float>(origin_z + vertex.z * vertex_scale),
-                                                    light,
-                                                    light,
-                                                    light,
+                                                    vertex.lighting / 65535.0f,
+                                                    static_cast<float>(vertex.repeat_u),
+                                                    static_cast<float>(vertex.repeat_v),
                                                     static_cast<float>(vertex.u),
                                                     static_cast<float>(vertex.v),
+                                                    static_cast<float>(vertex.u_size),
+                                                    static_cast<float>(vertex.v_size),
                                                 });
             }
         }
@@ -250,7 +255,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             vao.bind();
             vbo.bind();
             vbo.data(std::span<const float>(vertices), GL_DYNAMIC_DRAW);
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / 8));
+            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / FLOATS_PER_VERTEX));
         }
 
         // TODO: (Chore) Move `fbo` to the src/opengl.hpp and make it a proper class with destructors
@@ -263,7 +268,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         auto end = std::chrono::high_resolution_clock::now();
 
         run_limited(0.5) console.info
-            << "Triangle count: " << vertices.size() / 3
+            << "Triangle count: " << vertices.size() / FLOATS_PER_VERTEX / 3
             << "\nFPS: " << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
             << " (Rendering FPS: "
             << 1.0 / (0.001 * static_cast<double>(

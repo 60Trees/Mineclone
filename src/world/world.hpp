@@ -54,7 +54,12 @@ struct Vec3i {
 /// Neighbour order used everywhere (matches ChunkMesher::mesh): down, up, north, south, west, east.
 /// `i ^ 1` is always the opposite direction.
 inline constexpr std::array<Vec3i, 6> CHUNK_NEIGHBOR_OFFSETS{{
-    {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0},
+    {0, -1, 0},
+    {0, 1, 0},
+    {0, 0, -1},
+    {0, 0, 1},
+    {-1, 0, 0},
+    {1, 0, 0},
 }};
 
 struct Tile {
@@ -80,9 +85,20 @@ struct BlockVertex {
     uint16_t x, y, z;
     /// Ignored for now.
     uint16_t lighting;
-    /// @brief The pixel coordinates of the top-left corner of the texture (`u0`, inclusive)
-    /// and the bottom-right corner of the texture (`v1`, exclusive) in the atlas.
+    /// Top-left corner of the tile in the atlas, in pixels (inclusive). Same for every vertex of a face.
     uint16_t u, v;
+    /// Size of the tile in the atlas, in pixels. Same for every vertex of a face.
+    uint16_t u_size, v_size;
+    /**
+     * @brief Tile-space texture coordinate of THIS vertex: how many times the tile has repeated
+     * by the time you reach this corner. Typically 0 at the near edge of the face and N at the far edge.
+     * Interpolated across the face, the shader wraps it with fract() inside the tile's atlas rectangle.
+     *
+     * Far LODs: N = 2^lod, so the texture keeps its native world size.
+     * Greedy meshing (future): N = merged_width_in_blocks * 2^lod.
+     * @note Max 255. Widen to uint16_t if greedy meshing at higher LODs needs more.
+     */
+    uint8_t repeat_u, repeat_v;
     /**
      * @brief The normal vector of the face.
      * @note To normalize, cast to float and divide by `127.0f`.

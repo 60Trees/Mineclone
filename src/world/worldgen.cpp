@@ -1,9 +1,13 @@
 #include "worldgen.hpp"
 #include <world/blocks/block.hpp>
+#include "utils/noise.hpp"
 #include "world/world.hpp"
+#include <utils/noise.hpp>
 
 struct WorldGenImpl : WorldGen {
     tImplClass(WorldGen);
+
+    noise::Perlin noise;
 
     RawChunk generate_chunk(World::ChunkIndex index, RegistryList& reglist) override {
         // Example implementation: Starts off relatively flat with ground at 0,0,0 then an increasing amount of
@@ -20,32 +24,23 @@ struct WorldGenImpl : WorldGen {
         // Index.lod has 0=full detail, 1=half detail, 2=quarter detail, 3 = eighth detail, etc
         uint scalar = std::pow(2, index.lod);
 
-        for (int x = 0; x < CHUNK_SIZE; ++x) {
-            for (int z = 0; z < CHUNK_SIZE; ++z) {
+        for (int x = 0; x < CHUNK_SIZE; x++)
+            for (int z = 0; z < CHUNK_SIZE; z++) {
                 int world_x = index.pos.x * CHUNK_SIZE * scalar + x * scalar;
                 int world_z = index.pos.z * CHUNK_SIZE * scalar + z * scalar;
 
-                double height = std::sin(world_x * 0.00001) * std::cos(world_z * 0.00001) * 1000000;
+                std::vector<noise::Octave> octaves = {
+                    {1.0 / 25.0, 10.0},
+                    {1.0 / 50.0, 5.0},
+                    {1.0 / 100.0, 100.0},
+                };
 
-                for (int i = 1; i < 10; i += 1) {
-                    float frequency = 1.0f / (i * 50.0f);
-                    float amplitude = 10.0f * i;
-
-                    height += std::sin(world_x * frequency) * std::cos(world_z * frequency) * amplitude;
-                }
-
-                int block_height = static_cast<int>(std::round(height));
-
-                for (int y = 0; y < CHUNK_SIZE; ++y) {
+                double height = noise.noise(world_x, 0, world_z, octaves);
+                for (int y = 0; y < CHUNK_SIZE; y++) {
                     int world_y = index.pos.y * CHUNK_SIZE * scalar + y * scalar;
-                    if (world_y <= block_height) {
-                        retval.set(x, y, z, stone);
-                    } else {
-                        retval.set(x, y, z, air);
-                    }
+                    retval.set(x, y, z, height > world_y ? stone : air);  // Fill with stone below height, air above
                 }
             }
-        }
 
         return retval;
     }

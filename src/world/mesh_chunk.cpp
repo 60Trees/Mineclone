@@ -23,6 +23,12 @@ struct ChunkMesherImpl : ChunkMesher {
             static_cast<uint16_t>(std::min(texture_rect.second.x, static_cast<unsigned int>(UINT16_MAX)));
         const uint16_t v1 =
             static_cast<uint16_t>(std::min(texture_rect.second.y, static_cast<unsigned int>(UINT16_MAX)));
+        const uint16_t u_size = static_cast<uint16_t>(u1 - u0);
+        const uint16_t v_size = static_cast<uint16_t>(v1 - v0);
+
+        // At LOD n one mesh "block" spans 2^n real blocks, so the tile repeats 2^n times across it.
+        // Clamped to what a uint8_t can hold (LOD >= 8 all use 255; the pattern is sub-pixel by then anyway).
+        const uint8_t repeat = i.lod >= 8 ? static_cast<uint8_t>(255) : static_cast<uint8_t>(1u << i.lod);
 
         const auto air =
             parent->application->get_subapp<RegistryList>().getmod<BlockRegistry>().get_index("minecraft:air");
@@ -30,8 +36,6 @@ struct ChunkMesherImpl : ChunkMesher {
         // Sky / empty chunks are a single air tile: skip the 4096-block scan entirely.
         if (!chunk.array_chunk && (!chunk.single_tile || chunk.single_tile.id == air)) return {};
 
-        // The old reserve(CHUNK_BLOCK_COUNT * 36) was ~2.4 MB per chunk, and the vector kept that capacity
-        // for as long as the mesh was stored.
         std::vector<BlockVertex> mesh;
         mesh.reserve(2048);
 
@@ -47,8 +51,12 @@ struct ChunkMesherImpl : ChunkMesher {
                     vertex[1],
                     vertex[2],
                     lighting,
-                    static_cast<uint16_t>(uv[index][0] ? u1 : u0),
-                    static_cast<uint16_t>(uv[index][1] ? v1 : v0),
+                    u0,
+                    v0,
+                    u_size,
+                    v_size,
+                    static_cast<uint8_t>(uv[index][0] ? repeat : 0),
+                    static_cast<uint8_t>(uv[index][1] ? repeat : 0),
                     yaw,
                     pitch,
                     roll,
@@ -108,11 +116,13 @@ struct ChunkMesherImpl : ChunkMesher {
                     if (visible(static_cast<int>(x) - 1, static_cast<int>(y), static_cast<int>(z)))
                         add_face({{{x0, y0, z0}, {x0, y0, z1}, {x0, y1, z1}, {x0, y1, z0}}}, 48000, 0, 0, 1);
 
+                    // north (z-1): winding fixed
                     if (visible(static_cast<int>(x), static_cast<int>(y), static_cast<int>(z) - 1))
-                        add_face({{{x0, y0, z0}, {x1, y0, z0}, {x1, y1, z0}, {x0, y1, z0}}}, 44000, -1, 0, 0);
+                        add_face({{{x1, y0, z0}, {x0, y0, z0}, {x0, y1, z0}, {x1, y1, z0}}}, 44000, -1, 0, 0);
 
+                    // south (z+1): winding fixed
                     if (visible(static_cast<int>(x), static_cast<int>(y), static_cast<int>(z) + 1))
-                        add_face({{{x1, y0, z1}, {x0, y0, z1}, {x0, y1, z1}, {x1, y1, z1}}}, 40000, 1, 0, 0);
+                        add_face({{{x0, y0, z1}, {x1, y0, z1}, {x1, y1, z1}, {x0, y1, z1}}}, 40000, 1, 0, 0);
                 }
 
         return mesh;

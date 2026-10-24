@@ -1,11 +1,13 @@
 #version auto
 
 out vec4 FragColor;
-in vec3 ourColor;
-in vec2 TexCoord;
+in float Light;
+in vec2 TileUV;
+flat in vec4 TileRect;
 in vec3 WorldPosition;
 
 uniform sampler2D ourTexture;
+uniform vec2 atlasSize;
 uniform vec3 cameraPosition;
 
 // ===================== FOG TUNING =====================
@@ -62,7 +64,13 @@ float computeFog(float dist) {
 }
 
 void main() {
-    vec4 blockColor = texture(ourTexture, TexCoord) * vec4(ourColor, 1.0);
+    // The atlas can't use GL_REPEAT, so wrap inside the tile's rectangle by hand.
+    vec2 local = fract(TileUV);                         // 0..1 within one repetition
+    vec2 px = TileRect.xy + local * TileRect.zw;        // atlas pixel coordinate
+    // Keep the sample strictly inside the tile so float rounding can't bleed into a neighbour texture.
+    px = clamp(px, TileRect.xy + 0.01, TileRect.xy + TileRect.zw - 0.01);
+
+    vec4 blockColor = texture(ourTexture, px / atlasSize) * vec4(vec3(Light), 1.0);
     float dist = distance(WorldPosition, cameraPosition);
     float fogFactor = computeFog(dist);
     FragColor = vec4(mix(blockColor.rgb, FOG_COLOR, fogFactor), blockColor.a);
