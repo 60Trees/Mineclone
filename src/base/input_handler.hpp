@@ -15,6 +15,8 @@
 struct InputState {
     float pressure = 0.0f;
     float threshold = 0.5f;
+    // Incremented every time it's pressed
+    uint repeat_count = 0;
 
     /// 0 = transition this frame, >0 = seconds since the last transition.
     float duration = std::numeric_limits<float>::infinity();

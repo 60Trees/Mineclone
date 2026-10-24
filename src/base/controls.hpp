@@ -1,5 +1,6 @@
 #pragma once
 
+#include <SDL3/SDL_scancode.h>
 #include <base/input_handler.hpp>
 
 struct Control {
@@ -18,7 +19,30 @@ struct PushCtl : Control {
 
     operator bool() const final override { return get_pressure() >= threshold; }
     virtual float get_pressure() const = 0;
-    void update() override { }
+    void update() override {}
+};
+
+struct ToggleCtl : Control {
+    tClass;
+    ToggleCtl(InputHandler& input_handler, uint toggle_amount) : Control(input_handler), toggle_amount(toggle_amount) {}
+    // toggle_count % toggle_amount to get the current state
+    uint toggle_count = 0;
+    // E.g inventory = 2 (open and closed), perspective = 3 (first, second, third)
+    uint toggle_amount;
+
+    operator bool() const override { return operator()(0); }
+
+    inline bool operator()(uint amount) const { return (toggle_count % toggle_amount) == amount; }
+
+    void update() override { toggle_count = toggle_count % toggle_amount; }
+};
+
+struct KbToggleCtl : ToggleCtl {
+    tClass;
+    KbToggleCtl(InputHandler& input_handler, SDL_Scancode scancode, uint toggle_amount = 2)
+        : scancode(scancode), ToggleCtl(input_handler, toggle_amount) {}
+    SDL_Scancode scancode;
+    void update() override { toggle_count = input_handler.key_states[scancode].repeat_count % toggle_amount; }
 };
 
 struct KbPushCtl : PushCtl {
@@ -85,7 +109,7 @@ struct Controls : triolib::AppModule {
     }
 
     template <typename T>
-    T& operator[](const std::string& name) {
+    inline T& get(const std::string& name) {
         Control& ctl = (*this)[name];
         T* ptr = dynamic_cast<T*>(&ctl);
         if (!ptr) {

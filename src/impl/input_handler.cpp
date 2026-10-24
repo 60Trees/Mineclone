@@ -1,3 +1,4 @@
+#include <SDL3/SDL_events.h>
 #include <SDL3/SDL_oldnames.h>
 #include <base/input_handler.hpp>
 #include <base/fps_handler.hpp>
@@ -69,6 +70,9 @@ struct InputHandlerImpl : InputHandler {
             if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) {
                 key_states[e.key.scancode].duration = 0;
                 key_states[e.key.scancode].pressure = (e.type == SDL_EVENT_KEY_DOWN) ? 1.0f : 0.0f;
+            }
+            if (e.type == SDL_EVENT_KEY_DOWN) {
+                key_states[e.key.scancode].repeat_count++;
             }
             if (e.type == SDL_EVENT_QUIT) {
                 parent->done = true;

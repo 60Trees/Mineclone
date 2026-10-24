@@ -1,3 +1,4 @@
+#include <SDL3/SDL_scancode.h>
 #include <base/controls.hpp>
 
 struct ControlsImpl : Controls {
@@ -17,6 +18,8 @@ struct ControlsImpl : Controls {
         controls["look_down"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::DOWN);
         controls["look_left"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::LEFT);
         controls["look_right"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::RIGHT);
+
+        controls["detach_camera"] = std::make_unique<KbToggleCtl>(*input_handler, SDL_SCANCODE_BACKSLASH);
     }
     void loop() override {
         for (auto& [_, control] : controls) control->update();

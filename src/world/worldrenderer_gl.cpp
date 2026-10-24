@@ -178,7 +178,7 @@ struct TestRenderer : MainWorldRenderer::Renderer {
 
         Camera camera = [&] {
             std::shared_lock __(parent->world->camera_mutex);
-            return parent->world->camera;
+            return parent->world->render_camera;
         }();
 
         const auto window_size = parent->application->get_subapp<MainRenderer>().window_size();
@@ -256,6 +256,10 @@ struct TestRenderer : MainWorldRenderer::Renderer {
                                   std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()))
             << ")"
             << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z;
+
+        //glEnable(GL_CULL_FACE);
+        //glCullFace(GL_BACK);
+        //glFrontFace(GL_CCW);
     }
 
     void quit() override {}

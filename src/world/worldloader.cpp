@@ -71,8 +71,6 @@ struct WorldLoaderImpl : WorldLoader {
                 return std::pair<Vec3i, WorldLoader::WorkMode>{pos, mode};
             };
 
-            run_limited(1) console.log << "Cam chunk: " << cam_chunk.x << ',' << cam_chunk.y << ',' << cam_chunk.z;
-
             // Chunks that are drawn at this LOD, nearest to the camera first.
             std::vector<Vec3i> primary_order;
             std::unordered_set<Vec3i, Vec3i::Vec3iHash> primary_chunks;

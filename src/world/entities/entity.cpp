@@ -3,6 +3,7 @@
 #include <triolib.hpp>
 #include <world/world.hpp>
 #include <random>
+#include <base/controls.hpp>
 
 nlohmann::json any_to_json(const std::any& value) {
     if (!value.has_value()) return nullptr;
@@ -264,11 +265,15 @@ struct EntityListImpl : EntityList {
             {
                 std::unique_lock __(world.camera_mutex);
 
-                world.camera.x = cam_entity->pos.x;
-                world.camera.y = cam_entity->pos.y;
-                world.camera.z = cam_entity->pos.z;
-                world.camera.yaw = cam_entity->yaw;
-                world.camera.pitch = cam_entity->pitch;
+                world.render_camera.x = cam_entity->pos.x;
+                world.render_camera.y = cam_entity->pos.y;
+                world.render_camera.z = cam_entity->pos.z;
+                world.render_camera.yaw = cam_entity->yaw;
+                world.render_camera.pitch = cam_entity->pitch;
+
+                if (!parent->application->getmod<Controls>().get<ToggleCtl>("detach_camera")(0)) {
+                    world.camera = world.render_camera;
+                }
             }
 
             cam_entity->camera_on_follow(*parent->application);

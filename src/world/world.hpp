@@ -391,6 +391,7 @@ struct World : triolib::SubApp {
     /// For example: Center goes above y=1000, everything moves 1000 units
     /// down, offset.y += 1000
     Camera camera;
+    Camera render_camera;
     std::shared_mutex camera_mutex;
 
     inline Vec3i camchunk(PosLodLevel lod) {
