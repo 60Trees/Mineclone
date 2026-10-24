@@ -25,7 +25,7 @@ struct WorldGenImpl : WorldGen {
                 int world_x = index.pos.x * CHUNK_SIZE * scalar + x * scalar;
                 int world_z = index.pos.z * CHUNK_SIZE * scalar + z * scalar;
 
-                double height = std::sin(world_x * 0.0001) * std::cos(world_z * 0.0001) * 100000;
+                double height = std::sin(world_x * 0.00001) * std::cos(world_z * 0.00001) * 1000000;
 
                 for (int i = 1; i < 10; i += 1) {
                     float frequency = 1.0f / (i * 50.0f);

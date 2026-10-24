@@ -9,12 +9,11 @@
 
 #include <glm/glm.hpp>
 
-#include <iostream>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include "logger.hpp"
+#include <logger.hpp>
 
 #if defined(__EMSCRIPTEN__)
 #    include <GLES3/gl3.h>
@@ -232,6 +231,8 @@ namespace opengl {
             initialized = true;
         }
 
+        /// Auto handles the shader version for cross-platform compatibility.
+        /// E.g `#version 300 es` for WebGL and `#version 430 core` for desktop OpenGL.
         static constexpr std::string_view preamble =
 #ifdef __EMSCRIPTEN__
             "#version 300 es\nprecision mediump float;\n";
@@ -239,27 +240,27 @@ namespace opengl {
             "#version 430 core\n";
 #endif
 
-        inline void source_from_strview(std::string_view source, bool raw = false) {
-            if (raw) {
-                const GLchar* str = source.data();
-                const GLint length = static_cast<GLint>(source.size());
-                glShaderSource(id, 1, &str, &length);
-                return;
+        static constexpr std::string_view auto_version_marker = "#version auto\n";
+
+        /// @note If the source starts with `#version auto\n`, that line is replaced by \ref preamble
+        inline void source_from_strview(std::string_view source) {
+            std::string new_source;
+
+            if (source.starts_with(auto_version_marker)) {
+                source.remove_prefix(auto_version_marker.size());
+                new_source.reserve(preamble.size() + source.size());
+                new_source.append(preamble);
+                new_source.append(source);
+                source = new_source;
             }
 
-            std::string new_source;
-            new_source.reserve(preamble.size() + source.size());
-            new_source.append(preamble);
-            new_source.append(source);
-
-            source_from_strview(new_source, true);
+            const GLchar* str = source.data();
+            const GLint length = static_cast<GLint>(source.size());
+            glShaderSource(id, 1, &str, &length);
         }
 
-        /// If it's not raw then it prepends the `preamble` string
-        /// so that the shader is cross-compatible
-        inline void source_from_path(const std::string& path, bool raw = false) {
-            source_from_strview(load_asset(path), raw);
-        }
+        /// @note If the source starts with `#version auto\n`, that line is replaced by \ref preamble
+        inline void source_from_path(const std::string& path) { source_from_strview(load_asset(path)); }
 
         inline void compile() {
             glCompileShader(id);

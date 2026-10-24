@@ -1,30 +1,69 @@
-/**
- * @author 60Trees_ (github.com/60Trees)
- * @version 1.0.0
- */
-
-uniform uint u_time;
+#version auto
 
 out vec4 FragColor;
-uniform ivec2 u_windowsize;
-uniform sampler2D u_texture;
-in vec2 uv;
-uniform bool u_atlas;
-uniform vec4 u_selected_rect;
+in vec3 ourColor;
+in vec2 TexCoord;
+in vec3 WorldPosition;
+
+uniform sampler2D ourTexture;
+uniform vec3 cameraPosition;
+
+// ===================== FOG TUNING =====================
+// All distances are in blocks (world units).
+
+// Color the terrain fades into. Match this to glClearColor
+// (or your sky color) or distant terrain will look cut out.
+const vec3 FOG_COLOR = vec3(0.0, 0.0, 0.0);
+
+// Below this distance there is NO fog at all.
+// Raise it to keep more of the nearby area crisp.
+const float FOG_START = 30.0;
+
+// At/after this distance the fog is 100% opaque.
+// Set this to roughly the farthest terrain you want to see.
+// Fog is spread over log(FOG_END / FOG_START), so each
+// multiplicative step (x10, x100...) gets an equal share.
+const float FOG_END = 30000000.0;
+
+// Shape of the ramp between START and END (0..1 -> 0..1).
+//   1.0 = linear in log-distance
+//   >1  = fog stays thin longer, then ramps up late
+//   <1  = fog ramps up early, then flattens
+const float FOG_CURVE = 1.5;
+
+// For exponentialFog() below:
+// distance at which 63% of the light is lost (1 - 1/e).
+const float FOG_SCALE = 400000.0;
+// 1.0 = classic exponential. 2.0 = clearer up close and
+// a sharper wall of fog near FOG_SCALE (like GL_EXP2).
+const float FOG_POWER = 1.5;
+// ======================================================
+
+// Returns fog amount in [0, 1]. 0 = no fog, 1 = fully fog color.
+// Fog is spread evenly across orders of magnitude of distance.
+float logFog(float dist) {
+    // max() avoids log(0) = -inf at dist == 0.
+    float t = log2(max(dist, 0.001) / FOG_START) / log2(FOG_END / FOG_START);
+    t = clamp(t, 0.0, 1.0);        // 0 before START, 1 after END
+    t = pow(t, FOG_CURVE);         // shape the ramp
+    return t * t * (3.0 - 2.0 * t); // smoothstep: no visible fog edges
+}
+
+// Alternative: physically-motivated exponential fog.
+// transmittance = exp(-(dist / FOG_SCALE)^FOG_POWER)
+float exponentialFog(float dist) {
+    return 1.0 - exp(-pow(dist / FOG_SCALE, FOG_POWER));
+}
+
+// Single entry point. Swap which function is returned to change modes.
+float computeFog(float dist) {
+    return logFog(dist);
+    // return exponentialFog(dist);
+}
 
 void main() {
-    vec4 color = vec4(texture(u_texture, uv).rgb, 1.0);
-    if (u_atlas) {
-        const float border = 0.004;
-        const bool inside = uv.x >= u_selected_rect.x - border &&
-            uv.x <= u_selected_rect.y + border &&
-            uv.y >= u_selected_rect.z - border &&
-            uv.y <= u_selected_rect.w + border;
-        const bool edge = uv.x <= u_selected_rect.x + border ||
-            uv.x >= u_selected_rect.y - border ||
-            uv.y <= u_selected_rect.z + border ||
-            uv.y >= u_selected_rect.w - border;
-        if (inside && edge) color = vec4(1.0, 0.85, 0.1, 1.0);
-    }
-    FragColor = color;
+    vec4 blockColor = texture(ourTexture, TexCoord) * vec4(ourColor, 1.0);
+    float dist = distance(WorldPosition, cameraPosition);
+    float fogFactor = computeFog(dist);
+    FragColor = vec4(mix(blockColor.rgb, FOG_COLOR, fogFactor), blockColor.a);
 }

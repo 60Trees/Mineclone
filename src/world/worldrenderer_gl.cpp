@@ -5,7 +5,6 @@
 #include <base/controls.hpp>
 #include <world/worldrenderer.hpp>
 
-#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <shared_mutex>
@@ -28,38 +27,31 @@ struct TestRenderer : MainWorldRenderer::Renderer {
     GLint atlas_size_location = -1;
     GLint camera_position_location = -1;
 
-    constexpr static std::string_view vertex_shader_source = R"(
-        layout (location = 0) in vec3 aPos;
-        layout (location = 1) in vec3 aColor;
-        layout (location = 2) in vec2 aTexCoord;
+    GLuint fbo = 0, color_rb = 0, depth_rb = 0;
+    int fbo_w = 0, fbo_h = 0;
 
-        out vec3 ourColor;
-        out vec2 TexCoord;
-        out vec3 WorldPosition;
-        uniform mat4 viewProjection;
-        uniform vec2 atlasSize;
-
-        void main() {
-            gl_Position = viewProjection * vec4(aPos, 1.0);
-            ourColor = aColor;
-            TexCoord = aTexCoord / atlasSize;
-            WorldPosition = aPos;
-        })";
-    constexpr static std::string_view fragment_shader_source = R"(
-        out vec4 FragColor;
-        in vec3 ourColor;
-        in vec2 TexCoord;
-        in vec3 WorldPosition;
-
-        uniform sampler2D ourTexture;
-        uniform vec3 cameraPosition;
-
-        void main() {
-            vec4 blockColor = texture(ourTexture, TexCoord) * vec4(ourColor, 1.0);
-            float logarithmicDistance = log(max(distance(WorldPosition, cameraPosition) * 10.0, 1.0));
-            float fogFactor = (1.0 - exp(-logarithmicDistance / 8.0));
-            FragColor = mix(blockColor, vec4(0.0, 0.0, 0.0, 1.0), fogFactor);
-        })";
+    void ensure_framebuffer(int w, int h) {
+        if (fbo && w == fbo_w && h == fbo_h) return;
+        if (fbo) {
+            glDeleteFramebuffers(1, &fbo);
+            glDeleteRenderbuffers(1, &color_rb);
+            glDeleteRenderbuffers(1, &depth_rb);
+        }
+        fbo_w = w;
+        fbo_h = h;
+        glGenFramebuffers(1, &fbo);
+        glGenRenderbuffers(1, &color_rb);
+        glGenRenderbuffers(1, &depth_rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, color_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT32F, w, h);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_rb);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rb);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            throw std::runtime_error("Render framebuffer incomplete");
+    }
 
     struct DrawItem {
         Vec3i pos;
@@ -133,14 +125,19 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         vbo.bind();
         vbo.data(nullptr, 0, GL_DYNAMIC_DRAW);
 
+#ifdef __APPLE__
+        opengl::gl_err << "You might have some issues with macos. Fuck macos. It sucks";
+#endif
+
         {
             opengl::Shader vertex_shader(GL_VERTEX_SHADER);
             vertex_shader.create();
-            vertex_shader.source_from_strview(vertex_shader_source);
+            vertex_shader.source_from_path("assets/vert.glsl");
             vertex_shader.compile();
+
             opengl::Shader fragment_shader(GL_FRAGMENT_SHADER);
             fragment_shader.create();
-            fragment_shader.source_from_strview(fragment_shader_source);
+            fragment_shader.source_from_path("assets/frag.glsl");
             fragment_shader.compile();
 
             shader_program.create();
@@ -148,7 +145,6 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             shader_program.attach(fragment_shader);
             shader_program.link();
             shader_program.use();
-            // Shader auto deleted
         }
 
         view_projection_location = shader_program.get_uniform_location("viewProjection", true);
@@ -173,7 +169,6 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         glClearDepth(0.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        size_t vertex_count = 0;
         size_t chunk_count = 0;
 
         Camera camera = [&] {
@@ -182,6 +177,19 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         }();
 
         const auto window_size = parent->application->get_subapp<MainRenderer>().window_size();
+        ensure_framebuffer(window_size.x, window_size.y);  // use real pixel size if HiDPI differs
+
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glViewport(0, 0, fbo_w, fbo_h);
+        glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);  // requires GL 4.5 / ARB_clip_control
+
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_GREATER);
+        glClearDepth(0.0);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
         const float aspect = static_cast<float>(window_size.x) / static_cast<float>(window_size.y);
         const float pitch = glm::radians(camera.pitch);
         const float yaw = glm::radians(camera.yaw);
@@ -193,13 +201,13 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         const float near_plane = 0.05f;
         glm::mat4 reverse_infinite_perspective{0.0f};
         const float tan_half_fov = std::tan(glm::radians(70.0f) * 0.5f);
+
         reverse_infinite_perspective[0][0] = 1.0f / (aspect * tan_half_fov);
         reverse_infinite_perspective[1][1] = 1.0f / tan_half_fov;
-        reverse_infinite_perspective[2][2] = 1.0f;
+        reverse_infinite_perspective[2][2] = 0.0f;
         reverse_infinite_perspective[2][3] = -1.0f;
-        reverse_infinite_perspective[3][2] = 2.0f * near_plane;
-        // Everything is submitted camera-relative (computed in double on the CPU), so float precision does not
-        // fall apart for far LODs. Hence the view matrix has no translation.
+        reverse_infinite_perspective[3][2] = near_plane;
+
         const glm::mat4 view_projection =
             reverse_infinite_perspective * glm::lookAt(glm::vec3(0.0f), direction, glm::vec3(0.0f, 1.0f, 0.0f));
 
@@ -217,7 +225,6 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             const double origin_z = item.pos.z * extent - camera.z;
             const double vertex_scale = scale / static_cast<double>(CHUNK_SIZE);
 
-            vertex_count += item.mesh->size();
             for (const auto& vertex : *item.mesh) {
                 const float light = vertex.lighting / 65535.0f;
                 vertices.insert(vertices.end(), {
@@ -246,10 +253,17 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / 8));
         }
 
+        // TODO: (Chore) Move `fbo` to the src/opengl.hpp and make it a proper class with destructors
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, fbo_w, fbo_h, 0, 0, fbo_w, fbo_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
+
         auto end = std::chrono::high_resolution_clock::now();
 
         run_limited(0.5) console.info
-            << "Triangle count: " << vertex_count / 3
+            << "Triangle count: " << vertices.size() / 3
             << "\nFPS: " << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
             << " (Rendering FPS: "
             << 1.0 / (0.001 * static_cast<double>(
@@ -257,9 +271,9 @@ struct TestRenderer : MainWorldRenderer::Renderer {
             << ")"
             << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z;
 
-        //glEnable(GL_CULL_FACE);
-        //glCullFace(GL_BACK);
-        //glFrontFace(GL_CCW);
+        // glEnable(GL_CULL_FACE);
+        // glCullFace(GL_BACK);
+        // glFrontFace(GL_CCW);
     }
 
     void quit() override {}

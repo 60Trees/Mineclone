@@ -28,7 +28,7 @@ struct WorldLoaderImpl : WorldLoader {
     static constexpr int load_radius = 2;
 
     // @brief Number of LOD levels. Change it with set_lod_count().
-    int lod_count = 8;
+    int lod_count = 16;
     std::unordered_map<PosLodLevel, std::set<Vec3i>> in_progress_chunks;
     std::mutex in_progress_mutex;
 
@@ -153,9 +153,9 @@ struct WorldLoaderImpl : WorldLoader {
             in_progress_chunks[lod].erase(pos);
         };
         threads_per_lod = [](PosLodLevel lod) {
-            float fretval = 1;
+            float fretval = 2;
             while (lod > 0) {
-                fretval -= 0.5;
+                fretval -= 0.25;
                 lod -= 1;
             }
             int retval = (int)std::floor(fretval);
