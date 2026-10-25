@@ -33,6 +33,8 @@ struct WorldGenImpl : WorldGen {
                     {1.0 / 25.0, 10.0},
                     {1.0 / 50.0, 5.0},
                     {1.0 / 100.0, 100.0},
+                    {1.0 / 1000.0, 500.0},
+                    {1.0 / 10000.0, 5000.0},
                 };
 
                 double height = noise.noise(world_x, 0, world_z, octaves);

@@ -28,7 +28,7 @@ struct WorldLoaderImpl : WorldLoader {
     static constexpr int load_radius = 2;
 
     // @brief Number of LOD levels. Change it with set_lod_count().
-    int lod_count = 4;
+    int lod_count = 8;
     std::unordered_map<PosLodLevel, std::set<Vec3i>> in_progress_chunks;
     std::mutex in_progress_mutex;
 
@@ -78,6 +78,9 @@ struct WorldLoaderImpl : WorldLoader {
             std::vector<Vec3i> secondary_order;
             std::unordered_set<Vec3i, Vec3i::Vec3iHash> secondary_chunks;
 
+            // Don't need to be loaded or unloaded
+            std::set<Vec3i> lazy_chunks;
+
             const auto add_primary = [&](const Vec3i& pos) {
                 if (primary_chunks.insert(pos).second) primary_order.push_back(pos);
             };
@@ -87,6 +90,10 @@ struct WorldLoaderImpl : WorldLoader {
                     for (int z = -lod_radius; z <= lod_radius; z++) {
                         const Vec3i pos{cam_chunk.x + x, cam_chunk.y + y, cam_chunk.z + z};
                         const Vec3i origin{pos.x & ~1, pos.y & ~1, pos.z & ~1};
+                        if (!world->chunk_in_fov({pos.x, pos.y, pos.z}, lod)) {
+                            lazy_chunks.insert(pos);
+                            continue;
+                        }
                         for (int dx = 0; dx < 2; dx++)
                             for (int dy = 0; dy < 2; dy++)
                                 for (int dz = 0; dz < 2; dz++)
@@ -121,7 +128,7 @@ struct WorldLoaderImpl : WorldLoader {
 
             const auto try_cleanup = [&]() -> std::optional<std::pair<Vec3i, WorldLoader::WorkMode>> {
                 for (const auto& [pos, chunk] : lvl.chunks)
-                    if (!primary_chunks.contains(pos) && !secondary_chunks.contains(pos))
+                    if (!primary_chunks.contains(pos) && !secondary_chunks.contains(pos) && !lazy_chunks.contains(pos))
                         if (auto work = queue_work(pos, WorldLoader::Unload)) return work;
                 return std::nullopt;
             };
