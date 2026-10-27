@@ -27,6 +27,62 @@ add_executable(
     ${GAME_SOURCES}
 )
 
+# ============================================================
+# Release optimizations
+# ============================================================
+
+include(CheckIPOSupported)
+
+option(MINECLONE_FAST_MATH "Enable unsafe floating-point optimizations" OFF)
+
+# IPO enables link-time optimization (LTO).
+check_ipo_supported(
+    RESULT IPO_SUPPORTED
+    OUTPUT IPO_ERROR
+    LANGUAGES C CXX
+)
+
+if(IPO_SUPPORTED)
+    set_property(
+        TARGET ${PROJECT_NAME}
+        PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    )
+    message(STATUS "Release LTO: enabled")
+else()
+    message(WARNING "Release LTO unavailable: ${IPO_ERROR}")
+endif()
+
+# Explicit optimization flags for GCC and Clang.
+target_compile_options(${PROJECT_NAME} PRIVATE
+    $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:C,GNU,Clang>>:-O3>
+    $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>>:-O3>
+)
+
+# Native builds: optimize for the machine compiling the code.
+if(NOT EMSCRIPTEN AND NOT MINGW)
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:C,GNU,Clang>>:-march=native>
+        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>>:-march=native>
+    )
+endif()
+
+# Optional unsafe floating-point transformations.
+if(MINECLONE_FAST_MATH)
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:C,GNU,Clang>>:-ffast-math>
+        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>>:-ffast-math>
+    )
+endif()
+
+# Emscripten-specific release linker optimizations.
+if(EMSCRIPTEN)
+    target_link_options(${PROJECT_NAME} PRIVATE
+        $<$<CONFIG:Release>:-O3>
+        $<$<CONFIG:Release>:-sASSERTIONS=0>
+    )
+endif()
+
+
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE

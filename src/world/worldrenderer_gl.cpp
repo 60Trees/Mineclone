@@ -14,7 +14,7 @@
 #include <span>
 #include <vector>
 
-struct TestRenderer : MainWorldRenderer::Renderer {
+struct WorldRendererImpl : MainWorldRenderer::Renderer {
     tClass;
 
     /// pos(3) + light(1) + tileUV(2) + tileRect(4)
@@ -179,7 +179,6 @@ struct TestRenderer : MainWorldRenderer::Renderer {
         }();
 
         const auto window_size = parent->application->get_subapp<MainRenderer>().window_size();
-        run_limited(0.5) console.info << "Window size: " << window_size.x << "x" << window_size.y;
         ensure_framebuffer(window_size.x, window_size.y);  // use real pixel size if HiDPI differs
 
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -267,14 +266,18 @@ struct TestRenderer : MainWorldRenderer::Renderer {
 
         auto end = std::chrono::high_resolution_clock::now();
 
-        run_limited(0.5) console.info
-            << "Triangle count: " << vertices.size() / FLOATS_PER_VERTEX / 3
-            << "\nFPS: " << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
-            << " (Rendering FPS: "
-            << 1.0 / (0.001 * static_cast<double>(
-                                  std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()))
-            << ")"
-            << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z;
+        // Seconds it took for the frame to render
+        double time =
+            static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e6;
+
+        uint triangle_count = vertices.size() / FLOATS_PER_VERTEX / 3;
+
+        run_limited(0.5) console.info << "Triangle count: " << triangle_count << "\nFPS: "
+                                      << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
+                                      << " (Rendering FPS: " << 1.0 / time << ")"
+                                      << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z
+                                      << "\nTriangles per second: "
+                                      << (double)triangle_count / time;
 
         // glEnable(GL_CULL_FACE);
         // glCullFace(GL_BACK);
@@ -282,4 +285,4 @@ struct TestRenderer : MainWorldRenderer::Renderer {
     }
 
     void quit() override {}
-} REGISTER_MOD(TestRenderer, MainWorldRenderer);
+} REGISTER_MOD(WorldRendererImpl, MainWorldRenderer);

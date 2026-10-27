@@ -8,7 +8,8 @@
             "binaryDir": "${sourceDir}/build/native",
             "cacheVariables": {
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-                "VCPKG_TARGET_TRIPLET": "x64-linux"
+                "VCPKG_TARGET_TRIPLET": "x64-linux",
+                "CMAKE_BUILD_TYPE": "Release"
             }
         },
         {

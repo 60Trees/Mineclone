@@ -25,10 +25,10 @@ struct WorldLoaderImpl : WorldLoader {
     tImplClass(WorldLoader);
 
     // @brief The radius of chunks to load around the player.
-    static constexpr int load_radius = 2;
+    static constexpr int load_radius = 1;
 
     // @brief Number of LOD levels. Change it with set_lod_count().
-    int lod_count = 8;
+    int lod_count = 10;
     std::unordered_map<PosLodLevel, std::set<Vec3i>> in_progress_chunks;
     std::mutex in_progress_mutex;
 
@@ -134,21 +134,16 @@ struct WorldLoaderImpl : WorldLoader {
             };
 
             thread_local std::unordered_map<PosLodLevel, unsigned> state_by_lod;
-            switch ((++state_by_lod[lod]) % 3) {
+            switch ((++state_by_lod[lod]) % 2) {
                 case 0:
+                    if (auto work = try_cleanup()) return work;
                     if (auto work = try_primary_chunks()) return work;
                     if (auto work = try_secondary_chunks()) return work;
-                    if (auto work = try_cleanup()) return work;
                     break;
                 case 1:
-                    if (auto work = try_secondary_chunks()) return work;
                     if (auto work = try_cleanup()) return work;
-                    if (auto work = try_primary_chunks()) return work;
-                    break;
-                case 2:
-                    if (auto work = try_cleanup()) return work;
-                    if (auto work = try_primary_chunks()) return work;
                     if (auto work = try_secondary_chunks()) return work;
+                    if (auto work = try_primary_chunks()) return work;
                     break;
             }
 
@@ -160,9 +155,9 @@ struct WorldLoaderImpl : WorldLoader {
             in_progress_chunks[lod].erase(pos);
         };
         threads_per_lod = [](PosLodLevel lod) {
-            float fretval = 2;
+            float fretval = 3;
             while (lod > 0) {
-                fretval -= 0.25;
+                fretval -= 0.75;
                 lod -= 1;
             }
             int retval = (int)std::floor(fretval);

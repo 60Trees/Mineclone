@@ -1,4 +1,5 @@
 #include "worldgen.hpp"
+#include <thread>
 #include <world/blocks/block.hpp>
 #include "utils/noise.hpp"
 #include "world/world.hpp"
@@ -10,9 +11,8 @@ struct WorldGenImpl : WorldGen {
     noise::Perlin noise;
 
     RawChunk generate_chunk(World::ChunkIndex index, RegistryList& reglist) override {
-        // Example implementation: Starts off relatively flat with ground at 0,0,0 then an increasing amount of
-        // growing sine waves to show off how big terrain can get (infinite render distance, infinite height minecraft
-        // clone). Kind of like the player is in this giant bumpy basin
+        // Simulated lag
+        //std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         RawChunk retval;
 
