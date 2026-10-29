@@ -14,7 +14,7 @@ struct ChunkMesherImpl : ChunkMesher {
             parent->application->getmod<ResourceHandler>().resources.get_atlas("assets/minecraft/textures/block");
         if (!atlas) throw std::runtime_error("Block texture atlas is not loaded");
 
-        const auto& texture_rect = (*atlas)["assets/minecraft/textures/block/coarse_dirt.png"];
+        const auto& texture_rect = (*atlas)["assets/minecraft/textures/block/stone.png"];
         const uint16_t u0 =
             static_cast<uint16_t>(std::min(texture_rect.first.x, static_cast<unsigned int>(UINT16_MAX)));
         const uint16_t v0 =

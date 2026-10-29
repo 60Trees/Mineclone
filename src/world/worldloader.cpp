@@ -25,7 +25,7 @@ struct WorldLoaderImpl : WorldLoader {
     tImplClass(WorldLoader);
 
     // @brief The radius of chunks to load around the player.
-    static constexpr int load_radius = 1;
+    static constexpr int load_radius = 4;
 
     // @brief Number of LOD levels. Change it with set_lod_count().
     int lod_count = 10;

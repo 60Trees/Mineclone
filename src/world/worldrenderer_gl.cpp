@@ -1,8 +1,10 @@
+#include <chrono>
 #include <opengl.hpp>
 #include "base/fps_handler.hpp"
 #include "base/resources.hpp"
 #include <renderer/glrenderer.hpp>
 #include <base/controls.hpp>
+#include <sstream>
 #include <world/worldrenderer.hpp>
 
 #include <cmath>
@@ -168,8 +170,50 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
         vao.enableAttribute(3);
     }
 
+    struct Timestamp {
+        Timestamp() { start = std::chrono::high_resolution_clock::now(); }
+        std::chrono::high_resolution_clock::time_point start, end;
+        // 16.6 ~= 60fps
+        inline double millis() {
+            return (double)(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
+        }
+        // 0.016 ~= 60fps
+        inline double second() { return (millis() * 0.001); }
+        inline double fps() { return 1.0 / second(); }
+        inline void stop() { end = std::chrono::high_resolution_clock::now(); }
+    };
+
+    struct LoopedTimestamp {
+        std::vector<Timestamp> start_stop_pairs{};
+        inline void start_new() { start_stop_pairs.emplace_back(); }
+        inline void end_new() { start_stop_pairs.back().stop(); }
+        inline std::string stats() {
+            if (start_stop_pairs.empty()) return "empty";
+            std::stringstream retval;
+            // in ms
+            double total = 0.0;
+            double min = -1.0, max = -1.0;
+
+            for (auto& ts : start_stop_pairs) {
+                double millis = ts.millis();
+                total += millis;
+                if (millis < min || min < 0.0) min = millis;
+                if (millis > max) max = millis;
+            }
+
+            retval << "count=" << start_stop_pairs.size();
+            retval << ",total=" << total;
+            retval << ",avg=" << total / start_stop_pairs.size();
+            retval << ",range=" << max - min;
+
+            return retval.str();
+        }
+    };
+
     void loop() override {
-        auto start = std::chrono::high_resolution_clock::now();
+        std::map<std::string, Timestamp> times{};
+        std::map<std::string, LoopedTimestamp> ltimes{};
+        times["loop"] = {};
 
         size_t chunk_count = 0;
 
@@ -218,6 +262,7 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
         std::vector<float> vertices;
         for (const auto& item : draw_list) {
             if (!parent->world->chunk_in_fov(item.pos, item.lod, aspect)) continue;
+            ltimes["copying_vertices"].start_new();
 
             ++chunk_count;
             const double scale = std::ldexp(1.0, static_cast<int>(item.lod));
@@ -242,8 +287,8 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
                                                     static_cast<float>(vertex.v_size),
                                                 });
             }
+            ltimes["copying_vertices"].end_new();
         }
-
         shader_program.use();
         texture.bind();
         glUniformMatrix4fv(view_projection_location, 1, GL_FALSE, glm::value_ptr(view_projection));
@@ -254,7 +299,10 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
             vao.bind();
             vbo.bind();
             vbo.data(std::span<const float>(vertices), GL_DYNAMIC_DRAW);
+            times["draw call"] = {};
             glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / FLOATS_PER_VERTEX));
+            auto enddraw = std::chrono::high_resolution_clock::now();
+            times["draw call"].stop();
         }
 
         // TODO: (Chore) Move `fbo` to the src/opengl.hpp and make it a proper class with destructors
@@ -264,20 +312,22 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
 
-        auto end = std::chrono::high_resolution_clock::now();
+        times["loop"].stop();
 
-        // Seconds it took for the frame to render
-        double time =
-            static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e6;
+        std::string times_str = "Times:";
+        for (auto& [name, time] : times) {
+            times_str = times_str + "\n" + name + ": " + std::to_string(time.millis()) + "ms";
+        }
+        for (auto& [name, time] : ltimes) {
+            times_str = times_str + "\n" + name + ":" + time.stats();
+        }
 
         uint triangle_count = vertices.size() / FLOATS_PER_VERTEX / 3;
 
         run_limited(0.5) console.info << "Triangle count: " << triangle_count << "\nFPS: "
                                       << (long double)1.0 / (long double)parent->application->getmod<FpsHandler>().dt
-                                      << " (Rendering FPS: " << 1.0 / time << ")"
-                                      << "\nCamera pos: " << camera.x << ',' << camera.y << ',' << camera.z
-                                      << "\nTriangles per second: "
-                                      << (double)triangle_count / time;
+                                      << "\n"
+                                      << times_str;
 
         // glEnable(GL_CULL_FACE);
         // glCullFace(GL_BACK);
