@@ -4,62 +4,44 @@ out vec4 FragColor;
 in float Light;
 in vec2 TileUV;
 flat in vec4 TileRect;
-in vec3 WorldPosition;
+in vec3 RelativePosition;  // camera-relative, so its length is the distance to the camera
 
 uniform sampler2D ourTexture;
 uniform vec2 atlasSize;
-uniform vec3 cameraPosition;
 
-// ===================== FOG TUNING =====================
-// All distances are in blocks (world units).
+// ===================== FOG =====================
+// Set by the renderer every frame. Distances are in blocks (world units).
+uniform vec3 fogColor;   // same as the clear color, so distant terrain fades into the sky
+uniform float fogStart;  // no fog at/below this distance
+uniform float fogEnd;    // 100% fog at/after this distance (= farthest loaded mesh)
 
-// Color the terrain fades into. Match this to glClearColor
-// (or your sky color) or distant terrain will look cut out.
-const vec3 FOG_COLOR = vec3(0.0, 0.0, 0.0);
-
-// Below this distance there is NO fog at all.
-// Raise it to keep more of the nearby area crisp.
-const float FOG_START = 30.0;
-
-// At/after this distance the fog is 100% opaque.
-// Set this to roughly the farthest terrain you want to see.
-// Fog is spread over log(FOG_END / FOG_START), so each
-// multiplicative step (x10, x100...) gets an equal share.
-const float FOG_END = 30000000.0;
-
-// Shape of the ramp between START and END (0..1 -> 0..1).
+// Shape of the ramp between start and end (0..1 -> 0..1).
 //   1.0 = linear in log-distance
 //   >1  = fog stays thin longer, then ramps up late
 //   <1  = fog ramps up early, then flattens
 const float FOG_CURVE = 1.5;
 
-// For exponentialFog() below:
-// distance at which 63% of the light is lost (1 - 1/e).
-const float FOG_SCALE = 400000.0;
-// 1.0 = classic exponential. 2.0 = clearer up close and
-// a sharper wall of fog near FOG_SCALE (like GL_EXP2).
+// For exponentialFog(): 1.0 = classic exponential, 2.0 = GL_EXP2-like wall of fog.
 const float FOG_POWER = 1.5;
-// ======================================================
+// ===============================================
 
 // Returns fog amount in [0, 1]. 0 = no fog, 1 = fully fog color.
-// Fog is spread evenly across orders of magnitude of distance.
+// Spread evenly across orders of magnitude of distance, which matches how the LODs double in size.
 float logFog(float dist) {
-    // max() avoids log(0) = -inf at dist == 0.
-    float t = log2(max(dist, 0.001) / FOG_START) / log2(FOG_END / FOG_START);
-    t = clamp(t, 0.0, 1.0);        // 0 before START, 1 after END
-    t = pow(t, FOG_CURVE);         // shape the ramp
-    return t * t * (3.0 - 2.0 * t); // smoothstep: no visible fog edges
+    float t = log2(max(dist, fogStart) / fogStart) / log2(fogEnd / fogStart);
+    t = clamp(t, 0.0, 1.0);          // 0 before start, 1 after end
+    t = pow(t, FOG_CURVE);           // shape the ramp
+    return t * t * (3.0 - 2.0 * t);  // smoothstep: no visible fog edges
 }
 
-// Alternative: physically-motivated exponential fog.
-// transmittance = exp(-(dist / FOG_SCALE)^FOG_POWER)
+// Alternative: exponential fog, reaching ~95% at fogEnd.
 float exponentialFog(float dist) {
-    return 1.0 - exp(-pow(dist / FOG_SCALE, FOG_POWER));
+    return 1.0 - exp(-pow(3.0 * dist / fogEnd, FOG_POWER));
 }
 
 // Single entry point. Swap which function is returned to change modes.
 float computeFog(float dist) {
-    return logFog(dist);
+    return clamp(logFog(dist), 0.0, 0.6);
     // return exponentialFog(dist);
 }
 
@@ -71,7 +53,6 @@ void main() {
     px = clamp(px, TileRect.xy + 0.01, TileRect.xy + TileRect.zw - 0.01);
 
     vec4 blockColor = texture(ourTexture, px / atlasSize) * vec4(vec3(Light), 1.0);
-    float dist = distance(WorldPosition, cameraPosition);
-    float fogFactor = computeFog(dist);
-    FragColor = vec4(mix(blockColor.rgb, FOG_COLOR, fogFactor), blockColor.a);
+    float fogFactor = computeFog(length(RelativePosition));
+    FragColor = vec4(mix(blockColor.rgb, fogColor, fogFactor), blockColor.a);
 }

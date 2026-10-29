@@ -28,7 +28,7 @@ struct WorldLoaderImpl : WorldLoader {
     static constexpr int load_radius = 4;
 
     // @brief Number of LOD levels. Change it with set_lod_count().
-    int lod_count = 10;
+    int lod_count = 15;
     std::unordered_map<PosLodLevel, std::set<Vec3i>> in_progress_chunks;
     std::mutex in_progress_mutex;
 
@@ -90,10 +90,10 @@ struct WorldLoaderImpl : WorldLoader {
                     for (int z = -lod_radius; z <= lod_radius; z++) {
                         const Vec3i pos{cam_chunk.x + x, cam_chunk.y + y, cam_chunk.z + z};
                         const Vec3i origin{pos.x & ~1, pos.y & ~1, pos.z & ~1};
-                        if (!world->chunk_in_fov({pos.x, pos.y, pos.z}, lod)) {
-                            lazy_chunks.insert(pos);
-                            continue;
-                        }
+                        // if (!world->chunk_in_fov({pos.x, pos.y, pos.z}, lod)) {
+                        //     lazy_chunks.insert(pos);
+                        //     continue;
+                        // }
                         for (int dx = 0; dx < 2; dx++)
                             for (int dy = 0; dy < 2; dy++)
                                 for (int dz = 0; dz < 2; dz++)
@@ -134,16 +134,21 @@ struct WorldLoaderImpl : WorldLoader {
             };
 
             thread_local std::unordered_map<PosLodLevel, unsigned> state_by_lod;
-            switch ((++state_by_lod[lod]) % 2) {
+            switch ((++state_by_lod[lod]) % 3) {
                 case 0:
-                    if (auto work = try_cleanup()) return work;
                     if (auto work = try_primary_chunks()) return work;
                     if (auto work = try_secondary_chunks()) return work;
+                    if (auto work = try_cleanup()) return work;
                     break;
                 case 1:
-                    if (auto work = try_cleanup()) return work;
                     if (auto work = try_secondary_chunks()) return work;
+                    if (auto work = try_cleanup()) return work;
                     if (auto work = try_primary_chunks()) return work;
+                    break;
+                case 2:
+                    if (auto work = try_cleanup()) return work;
+                    if (auto work = try_primary_chunks()) return work;
+                    if (auto work = try_secondary_chunks()) return work;
                     break;
             }
 
@@ -155,9 +160,9 @@ struct WorldLoaderImpl : WorldLoader {
             in_progress_chunks[lod].erase(pos);
         };
         threads_per_lod = [](PosLodLevel lod) {
-            float fretval = 3;
+            float fretval = 6;
             while (lod > 0) {
-                fretval -= 0.75;
+                fretval -= 1.25;
                 lod -= 1;
             }
             int retval = (int)std::floor(fretval);

@@ -86,7 +86,7 @@ struct Player : Entity {
 
     Player(const Player& other) : Entity(other) {}
     Player(std::string id) : Entity(id, EntityControls({}, update_controls)) {
-        pos.y = 5536.0;
+        pos.y = 1.00562e+06;
         pitch = -30.0;
     }
     Player(const nlohmann::json& data, Application& app) : Entity(data, app) { controls.tick_func = update_controls; }

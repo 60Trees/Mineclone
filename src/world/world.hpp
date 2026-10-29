@@ -420,41 +420,7 @@ struct World : triolib::SubApp {
         };
     }
 
-    inline bool chunk_in_fov(Vec3i pos, PosLodLevel lod, double aspect_ratio = 2.0) const {
-        const double scale = std::ldexp(1.0, static_cast<int>(lod));
-        const double chunk_size = static_cast<double>(CHUNK_SIZE) * scale;
-        const double half_extent = chunk_size * 0.5;
-        const double radius = std::sqrt(3.0) * half_extent;
-        const double yaw = camera.yaw * std::numbers::pi / 180.0;
-        const double pitch = camera.pitch * std::numbers::pi / 180.0;
-        const double cos_pitch = std::cos(pitch);
-
-        const std::array<double, 3> forward{
-            cos_pitch * std::cos(yaw),
-            std::sin(pitch),
-            cos_pitch * std::sin(yaw),
-        };
-        const std::array<double, 3> right{std::sin(yaw), 0.0, -std::cos(yaw)};
-        const std::array<double, 3> up{
-            right[1] * forward[2] - right[2] * forward[1],
-            right[2] * forward[0] - right[0] * forward[2],
-            right[0] * forward[1] - right[1] * forward[0],
-        };
-        const std::array<double, 3> center{
-            (static_cast<double>(pos.x) + 0.5) * chunk_size - camera.x,
-            (static_cast<double>(pos.y) + 0.5) * chunk_size - camera.y,
-            (static_cast<double>(pos.z) + 0.5) * chunk_size - camera.z,
-        };
-        const auto dot = [](const std::array<double, 3>& a, const std::array<double, 3>& b) {
-            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-        };
-        const double depth = dot(center, forward);
-        const double tan_vertical_fov = std::tan(35.0 * std::numbers::pi / 180.0);
-        const double tan_horizontal_fov = tan_vertical_fov * aspect_ratio;
-
-        return depth + radius >= 0.0 && std::abs(dot(center, right)) <= depth * tan_horizontal_fov + radius &&
-               std::abs(dot(center, up)) <= depth * tan_vertical_fov + radius;
-    }
+    virtual bool chunk_in_fov(Vec3i pos, PosLodLevel lod, double aspect_ratio = 2.0) const = 0;
 
     struct Module : triolib::Module {
         tClass;

@@ -12,7 +12,7 @@ struct WorldGenImpl : WorldGen {
 
     RawChunk generate_chunk(World::ChunkIndex index, RegistryList& reglist) override {
         // Simulated lag
-        //std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         RawChunk retval;
 
@@ -35,9 +35,11 @@ struct WorldGenImpl : WorldGen {
                     {1.0 / 100.0, 100.0},
                     {1.0 / 1000.0, 500.0},
                     {1.0 / 10000.0, 5000.0},
+                    {1.0 / 1000000.0, 1000000.0},
                 };
 
-                double height = noise.noise(world_x, 0, world_z, octaves);
+                double height = world_x == 0 || world_z == 0 ? 0.0 : noise.noise(world_x, 0, world_z, octaves);
+                if (world_x == 1 && world_z == 1) run_once console.log << "Height at (1, 1) = " << height;
                 for (int y = 0; y < CHUNK_SIZE; y++) {
                     int world_y = index.pos.y * CHUNK_SIZE * scalar + y * scalar;
                     retval.set(x, y, z, height > world_y ? stone : air);  // Fill with stone below height, air above
