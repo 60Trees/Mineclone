@@ -3,10 +3,18 @@
 #include <base/fps_handler.hpp>
 #include <glm/common.hpp>
 #include "triolib.hpp"
+#include <algorithm>
+#include <array>
 #include <atomic>
-#include <optional>
-#include <thread>
+#include <chrono>
+#include <cmath>
+#include <memory>
 #include <mutex>
+#include <numbers>
+#include <optional>
+#include <shared_mutex>
+#include <thread>
+#include <vector>
 
 Tile TileNull = {0, 0};
 
@@ -70,6 +78,11 @@ struct WorldImpl : World, Poller {
             camera.y <= (pos.y + 1) * chunk_size && camera.z >= pos.z * chunk_size &&
             camera.z <= (pos.z + 1) * chunk_size)
             return true;
+        // yes if the camera is next to the chunk (within one chunk width in any direction)
+        if (camera.x >= (pos.x - 1) * chunk_size && camera.x <= (pos.x + 2) * chunk_size &&
+            camera.y >= (pos.y - 1) * chunk_size && camera.y <= (pos.y + 2) * chunk_size &&
+            camera.z >= (pos.z - 1) * chunk_size && camera.z <= (pos.z + 2) * chunk_size)
+            return true;
         const double half_extent = chunk_size * 0.5;
         const double radius = std::sqrt(3.0) * half_extent;
         const double yaw = camera.yaw * std::numbers::pi / 180.0;
@@ -107,12 +120,52 @@ struct WorldImpl : World, Poller {
 struct ChunkMeshLoop : World::Module {
     tClass;
 
+    /// Tune this. Leave a couple of cores for the main/render thread and the world loader.
+    static size_t default_worker_count() {
+        const size_t hw = std::max<size_t>(1, std::thread::hardware_concurrency());
+        return hw > 3 ? std::min<size_t>(hw - 2, 12) : 1;
+    }
+
     ChunkMesher* mesher = nullptr;
     std::atomic_bool done = false;
-    std::thread mesher_thread;
+    std::vector<std::thread> workers;
+
+    /// Chunks currently being meshed by some worker. A chunk that is re-queued while it is in flight stays in the
+    /// pending set and is only picked up once the running job finishes, so two workers never mesh the same chunk
+    /// concurrently and an older mesh can never be published after a newer one.
+    std::mutex in_flight_mutex;
+    std::vector<World::ChunkIndex> in_flight;
+
+    static bool same_chunk(const World::ChunkIndex& a, const World::ChunkIndex& b) {
+        return a.lod == b.lod && a.pos.x == b.pos.x && a.pos.y == b.pos.y && a.pos.z == b.pos.z;
+    }
+
+    /// Caller must hold in_flight_mutex.
+    bool is_in_flight_locked(const World::ChunkIndex& idx) const {
+        return std::any_of(
+            in_flight.begin(), in_flight.end(), [&](const World::ChunkIndex& other) { return same_chunk(idx, other); });
+    }
+
+    void release(const World::ChunkIndex& idx) {
+        std::lock_guard lock(in_flight_mutex);
+        const auto it = std::find_if(
+            in_flight.begin(), in_flight.end(), [&](const World::ChunkIndex& other) { return same_chunk(idx, other); });
+        if (it != in_flight.end()) {
+            *it = in_flight.back();
+            in_flight.pop_back();
+        }
+    }
+
+    /// Releases the in-flight claim on scope exit, even if meshing throws.
+    struct InFlightGuard {
+        ChunkMeshLoop& self;
+        World::ChunkIndex idx;
+        ~InFlightGuard() { self.release(idx); }
+    };
 
     /// Pops the pending chunk that is closest to the camera, measured in chunk widths *of its own LOD*,
     /// so coarse fallback chunks are not starved by a flood of LOD 0 work.
+    /// Thread-safe: the chosen chunk is removed from the pending set and marked in-flight atomically.
     std::optional<World::ChunkIndex> take_next() {
         Camera cam;
         {
@@ -121,7 +174,9 @@ struct ChunkMeshLoop : World::Module {
         }
 
         auto& data = world->mesh_data;
+        // Lock order: chunks_to_mesh_mutex -> in_flight_mutex (release() only takes in_flight_mutex).
         std::lock_guard pending_lock(data.chunks_to_mesh_mutex);
+        std::lock_guard flight_lock(in_flight_mutex);
 
         std::optional<World::ChunkIndex> best;
         double best_score = 0.0;
@@ -132,13 +187,17 @@ struct ChunkMeshLoop : World::Module {
                 const double dy = ((pos.y + 0.5) * size - cam.y) / size;
                 const double dz = ((pos.z + 0.5) * size - cam.z) / size;
                 const double score = dx * dx + dy * dy + dz * dz;
-                if (!best || score < best_score) {
-                    best = World::ChunkIndex{pos, lod};
-                    best_score = score;
-                }
+                if (best && score >= best_score) continue;
+                const World::ChunkIndex candidate{pos, lod};
+                if (is_in_flight_locked(candidate)) continue;  // leave it queued for later
+                best = candidate;
+                best_score = score;
             }
         }
-        if (best) data.chunks_to_mesh[best->lod].erase(best->pos);
+        if (best) {
+            data.chunks_to_mesh[best->lod].erase(best->pos);
+            in_flight.push_back(*best);
+        }
         return best;
     }
 
@@ -183,7 +242,8 @@ struct ChunkMeshLoop : World::Module {
             it->second.mesh_missing_neighbors.store(missing);
         }
 
-        // 2) Mesh without holding any lock.
+        // 2) Mesh without holding any lock. NOTE: runs concurrently on several threads, so ChunkMesher::mesh
+        //    must not use shared mutable state (use thread_local / local scratch buffers).
         const auto ptr = [&](size_t i) -> const RawChunk* { return neighbors[i] ? &*neighbors[i] : nullptr; };
         auto vertices = mesher->mesh(index, *chunk, ptr(0), ptr(1), ptr(2), ptr(3), ptr(4), ptr(5));
         vertices.shrink_to_fit();
@@ -207,28 +267,35 @@ struct ChunkMeshLoop : World::Module {
     bool meshloop() {
         const auto next = take_next();
         if (!next) return false;
+        InFlightGuard guard{*this, *next};
         mesh_chunk(*next);
         return true;
+    }
+
+    void worker_main() {
+        while (!done) {
+            bool worked = false;
+            try {
+                worked = meshloop();
+            } catch (const std::exception& e) {
+                run_limited(1) console.log << "Mesher error: " << e.what();
+            }
+            if (!worked) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
     }
 
     void init() override {
         World::Module::init();
         mesher = &world->getmod<ChunkMesher>();
-        mesher_thread = std::thread{[this]() {
-            while (!done) {
-                bool worked = false;
-                try {
-                    worked = meshloop();
-                } catch (const std::exception& e) {
-                    run_limited(1) console.log << "Mesher error: " << e.what();
-                }
-                if (!worked) std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            }
-        }};
+        const size_t count = default_worker_count();
+        workers.reserve(count);
+        for (size_t i = 0; i < count; ++i) workers.emplace_back([this]() { worker_main(); });
     }
     void loop() override {}
     void quit() override {
         done = true;
-        if (mesher_thread.joinable()) mesher_thread.join();
+        for (auto& t : workers)
+            if (t.joinable()) t.join();
+        workers.clear();
     }
 } REGISTER_MOD(ChunkMeshLoop, World);

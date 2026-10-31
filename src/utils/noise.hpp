@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <glm/vec2.hpp>
 
 namespace noise {
     using Seed = uint64_t;
@@ -30,8 +31,8 @@ namespace noise {
         inline double noise(double x, double y, double z, std::vector<Octave> octaves) const {
             double total = 0.0;
             for (const auto& octave : octaves) {
-                total +=
-                    impl->noise(x * octave.frequency, y * octave.frequency, z * octave.frequency) * octave.amplitude * 2;
+                total += impl->noise(x * octave.frequency, y * octave.frequency, z * octave.frequency) *
+                         octave.amplitude * 2;
             }
             return total;
         }

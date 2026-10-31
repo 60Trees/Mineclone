@@ -23,6 +23,14 @@ const float FOG_CURVE = 1.5;
 
 // For exponentialFog(): 1.0 = classic exponential, 2.0 = GL_EXP2-like wall of fog.
 const float FOG_POWER = 1.5;
+
+// How quickly the directional shading is washed out by fog.
+//   fogFactor at which the tint is completely gone (0..1). Lower = the tint disappears closer to the camera.
+const float TINT_FADE_END = 0.3;
+// What the light fades toward. 1.0 = fully lit; use something like 0.8 if distant terrain
+// looks too bright compared to nearby terrain (roughly the average of your face shades).
+const float TINT_NEUTRAL = 0.85;
+
 // ===============================================
 
 // Returns fog amount in [0, 1]. 0 = no fog, 1 = fully fog color.
@@ -41,18 +49,21 @@ float exponentialFog(float dist) {
 
 // Single entry point. Swap which function is returned to change modes.
 float computeFog(float dist) {
-    return clamp(logFog(dist), 0.0, 0.6);
+    return clamp(logFog(dist), 0.0, 1.0) * 0.9;
     // return exponentialFog(dist);
 }
 
 void main() {
-    // The atlas can't use GL_REPEAT, so wrap inside the tile's rectangle by hand.
-    vec2 local = fract(TileUV);                         // 0..1 within one repetition
-    vec2 px = TileRect.xy + local * TileRect.zw;        // atlas pixel coordinate
-    // Keep the sample strictly inside the tile so float rounding can't bleed into a neighbour texture.
+    vec2 local = fract(TileUV);
+    vec2 px = TileRect.xy + local * TileRect.zw;
     px = clamp(px, TileRect.xy + 0.01, TileRect.xy + TileRect.zw - 0.01);
 
-    vec4 blockColor = texture(ourTexture, px / atlasSize) * vec4(vec3(Light), 1.0);
     float fogFactor = computeFog(length(RelativePosition));
+
+    // The more fog, the less the face-direction tint matters.
+    float tintStrength = 1.0 - smoothstep(0.0, TINT_FADE_END, fogFactor);
+    float light = mix(TINT_NEUTRAL, Light, tintStrength);
+
+    vec4 blockColor = texture(ourTexture, px / atlasSize) * vec4(vec3(light), 1.0);
     FragColor = vec4(mix(blockColor.rgb, fogColor, fogFactor), blockColor.a);
 }

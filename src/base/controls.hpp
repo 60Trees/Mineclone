@@ -24,7 +24,8 @@ struct PushCtl : Control {
 
 struct ToggleCtl : Control {
     tClass;
-    ToggleCtl(InputHandler& input_handler, uint toggle_amount) : Control(input_handler), toggle_amount(toggle_amount) {}
+    ToggleCtl(InputHandler& input_handler, uint toggle_amount, uint default_amount = 0)
+        : Control(input_handler), toggle_amount(toggle_amount), toggle_count(default_amount) {}
     // toggle_count % toggle_amount to get the current state
     uint toggle_count = 0;
     // E.g inventory = 2 (open and closed), perspective = 3 (first, second, third)
@@ -39,10 +40,12 @@ struct ToggleCtl : Control {
 
 struct KbToggleCtl : ToggleCtl {
     tClass;
-    KbToggleCtl(InputHandler& input_handler, SDL_Scancode scancode, uint toggle_amount = 2)
-        : scancode(scancode), ToggleCtl(input_handler, toggle_amount) {}
+    KbToggleCtl(InputHandler& input_handler, SDL_Scancode scancode, uint default_amount = 0, uint toggle_amount = 2)
+        : scancode(scancode), ToggleCtl(input_handler, toggle_amount, default_amount) {}
     SDL_Scancode scancode;
-    void update() override { toggle_count = input_handler.key_states[scancode].repeat_count % toggle_amount; }
+    void update() override {
+        if (input_handler.key_states[scancode].just_pressed()) toggle_count++;
+    }
 };
 
 struct KbPushCtl : PushCtl {

@@ -4,6 +4,7 @@
 #include <base/controls.hpp>
 #include <world/world.hpp>
 #include "triolib.hpp"
+#include "world/worldgen.hpp"
 
 using namespace std;
 using namespace triolib;
@@ -85,11 +86,13 @@ struct Player : Entity {
     }
 
     Player(const Player& other) : Entity(other) {}
-    Player(std::string id) : Entity(id, EntityControls({}, update_controls)) {
-        pos.y = 1.00562e+06;
-        pitch = -30.0;
-    }
+    Player(std::string id) : Entity(id, EntityControls({}, update_controls)) { pitch = -30.0; }
     Player(const nlohmann::json& data, Application& app) : Entity(data, app) { controls.tick_func = update_controls; }
+
+    void spawn(triolib::Application& app) override {
+        auto& w = app.get_subapp<World>();
+        pos.y = (double)(w.getmod<WorldGen>().get_approx_height_at(0, 0) - w.offset.y);
+    }
 
     double camera_priority(Application&) const override { return 1.0; }
 } REGISTER_ENTITY(Player, "minecraft:player");

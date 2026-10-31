@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <numeric>
 #include <random>
+#include "triolib.hpp"
 
 namespace noise {
     struct PerlinImpl : PerlinBaseImpl {
@@ -75,6 +76,7 @@ namespace noise {
         static_assert(std::is_same_v<Seed, uint64_t>, "Seed type must be uint64_t");
 
         thread_local std::mt19937_64 rng(std::random_device{}());
+        console.log << "Seed: " << rng();
         return rng();
     };
 }  // namespace noise

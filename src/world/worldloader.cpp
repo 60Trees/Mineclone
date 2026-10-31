@@ -24,11 +24,8 @@
 struct WorldLoaderImpl : WorldLoader {
     tImplClass(WorldLoader);
 
-    // @brief The radius of chunks to load around the player.
-    static constexpr int load_radius = 4;
-
     // @brief Number of LOD levels. Change it with set_lod_count().
-    int lod_count = 15;
+    int lod_count = 8;
     std::unordered_map<PosLodLevel, std::set<Vec3i>> in_progress_chunks;
     std::mutex in_progress_mutex;
 
@@ -44,7 +41,7 @@ struct WorldLoaderImpl : WorldLoader {
             std::shared_lock level_guard(lvl.mutex);
 
             Vec3i cam_chunk = w.camchunk(lod);
-            const int lod_radius = load_radius;
+            const int lod_radius = get_chunk_radius(lod);
 
             const auto queue_work =
                 [&](Vec3i pos, WorldLoader::WorkMode mode) -> std::optional<std::pair<Vec3i, WorldLoader::WorkMode>> {
@@ -160,14 +157,20 @@ struct WorldLoaderImpl : WorldLoader {
             in_progress_chunks[lod].erase(pos);
         };
         threads_per_lod = [](PosLodLevel lod) {
-            float fretval = 6;
-            while (lod > 0) {
-                fretval -= 1.25;
-                lod -= 1;
-            }
-            int retval = (int)std::floor(fretval);
-            if (retval == 0) retval = 1;
-            return retval;
+            return 5;
+            // float fretval = 6;
+            // while (lod > 0) {
+            //     fretval -= 1.25;
+            //     lod -= 1;
+            // }
+            // int retval = (int)std::floor(fretval);
+            // if (retval == 0) retval = 1;
+            // return retval;
+        };
+        get_chunk_radius = [](PosLodLevel lod) {
+            return 10;
+            // static std::vector<uint> radii{6, 5, 4, 3, 2, 1};
+            // return lod < radii.size() ? radii[lod] : 1;
         };
     }
 

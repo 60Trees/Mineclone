@@ -51,6 +51,8 @@ struct WorldLoader : World::Module {
     /// A thread that serves several LODs polls them round-robin, so a busy LOD can not starve its neighbours.
     std::function<int(PosLodLevel)> threads_per_lod = [](PosLodLevel) { return 1; };
 
+    std::function<uint(PosLodLevel)> get_chunk_radius = [](PosLodLevel) { return 3; };
+
     /// @brief Resolves `threads_per_lod` into one entry per OS thread: the LODs that thread serves.
     inline std::vector<std::vector<PosLodLevel>> plan_threads(PosLodLevel lod_count) const {
         std::vector<std::vector<PosLodLevel>> plan;

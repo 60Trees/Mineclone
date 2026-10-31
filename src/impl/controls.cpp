@@ -19,7 +19,7 @@ struct ControlsImpl : Controls {
         controls["look_left"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::LEFT);
         controls["look_right"] = std::make_unique<MousePushCtl>(*input_handler, MousePushCtl::RIGHT);
 
-        controls["detach_camera"] = std::make_unique<KbToggleCtl>(*input_handler, SDL_SCANCODE_BACKSLASH);
+        controls["detach_camera"] = std::make_unique<KbToggleCtl>(*input_handler, SDL_SCANCODE_BACKSLASH, 1);
     }
     void loop() override {
         for (auto& [_, control] : controls) control->update();

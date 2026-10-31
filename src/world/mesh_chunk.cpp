@@ -4,17 +4,32 @@
 #include <base/resources.hpp>
 #include <registry/registry.hpp>
 #include <world/blocks/block.hpp>
+#include <structures/assets/models/block.hpp>
 
 struct ChunkMesherImpl : ChunkMesher {
     tImplClass(ChunkMesher);
 
+    uint chunks_done = 0;
+    std::mutex chunks_done_mutex;
+
     std::vector<BlockVertex> mesh(World::ChunkIndex i, const RawChunk& chunk, const RawChunk* down, const RawChunk* up,
         const RawChunk* north, const RawChunk* south, const RawChunk* west, const RawChunk* east) override {
+        {
+            std::lock_guard __(chunks_done_mutex);
+            chunks_done++;
+            run_limited(1) {
+                console.log << "Chunks meshed per second: " << chunks_done;
+                chunks_done = 0;
+            }
+        }
+
         const auto* atlas =
             parent->application->getmod<ResourceHandler>().resources.get_atlas("assets/minecraft/textures/block");
         if (!atlas) throw std::runtime_error("Block texture atlas is not loaded");
 
-        const auto& texture_rect = (*atlas)["assets/minecraft/textures/block/stone.png"];
+        // const auto& texture_rect = (*atlas)["assets/minecraft/textures/block/grass_block_side.png"];
+        const auto& texture_rect = (*atlas)["assets/minecraft/textures/block/netherrack.png"];
+
         const uint16_t u0 =
             static_cast<uint16_t>(std::min(texture_rect.first.x, static_cast<unsigned int>(UINT16_MAX)));
         const uint16_t v0 =

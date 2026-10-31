@@ -36,7 +36,7 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
 
     /// Used for both glClearColor and the fog, so distant terrain fades *into the sky* instead of into a
     /// colour that looks identical to "nothing there". Set to black if you want the old look.
-    glm::vec3 sky_color{0.53f, 0.68f, 0.88f};
+    glm::vec3 sky_color{1.f, 1.f, 1.f};
     /// Fog is 0% at/below this distance (blocks). The far end is derived each frame from the farthest mesh.
     float fog_start = 32.0f;
 
@@ -103,10 +103,8 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
         glGenBuffers(1, &slot->vbo);
         glBindVertexArray(slot->vao);
         glBindBuffer(GL_ARRAY_BUFFER, slot->vbo);
-        glBufferData(GL_ARRAY_BUFFER,
-            static_cast<GLsizeiptr>(mesh->size() * sizeof(BlockVertex)),
-            mesh->data(),
-            GL_STATIC_DRAW);
+        glBufferData(
+            GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(mesh->size() * sizeof(BlockVertex)), mesh->data(), GL_STATIC_DRAW);
 
         constexpr GLsizei stride = sizeof(BlockVertex);
         const auto at = [](size_t byte_offset) { return reinterpret_cast<const void*>(byte_offset); };
@@ -191,9 +189,9 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
         const auto children_ready = [&](PosLodLevel lod, const Vec3i& p) {
             if (lod == 0) return false;
             for (int i = 0; i < 8; ++i)
-                if (!has(lod - 1, Vec3i{p.x * 2 + (i & 1), p.y * 2 + ((i >> 1) & 1), p.z * 2 + ((i >> 2) & 1)}))
-                    return false;
-            return true;
+                if (has(lod - 1, Vec3i{p.x * 2 + (i & 1), p.y * 2 + ((i >> 1) & 1), p.z * 2 + ((i >> 2) & 1)}))
+                    return true;  // was: return false on the first missing child
+            return false;         // was: return true
         };
         const auto parent_of = [](const Vec3i& p) { return Vec3i{p.x >> 1, p.y >> 1, p.z >> 1}; };
 
@@ -209,7 +207,7 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
 
         std::vector<const Entry*> visible;
         for (const auto& e : snapshot) {
-            if (!e.mesh || e.mesh->empty()) continue;          // nothing to draw (but it counted as coverage)
+            if (!e.mesh || e.mesh->empty()) continue;            // nothing to draw (but it counted as coverage)
             if (children_ready(e.lod, e.pos)) continue;          // finer chunks take over
             if (claimed(e.lod + 1, parent_of(e.pos))) continue;  // a coarser chunk still covers this region
             visible.push_back(&e);
@@ -373,9 +371,7 @@ struct WorldRendererImpl : MainWorldRenderer::Renderer {
             const double origin_y = item.pos.y * extent - camera.y;
             const double origin_z = item.pos.z * extent - camera.z;
 
-            glUniform3f(chunk_offset_location,
-                static_cast<float>(origin_x),
-                static_cast<float>(origin_y),
+            glUniform3f(chunk_offset_location, static_cast<float>(origin_x), static_cast<float>(origin_y),
                 static_cast<float>(origin_z));
             // world units per raw vertex unit (raw coords are 16 per block).
             glUniform1f(chunk_scale_location, static_cast<float>(scale / static_cast<double>(CHUNK_SIZE)));

@@ -1,14 +1,37 @@
 #include "worldgen.hpp"
-#include <thread>
 #include <world/blocks/block.hpp>
 #include "utils/noise.hpp"
 #include "world/world.hpp"
 #include <utils/noise.hpp>
 
+namespace {
+    namespace mp {
+        using namespace boost::multiprecision;
+    }
+}  // namespace
+
 struct WorldGenImpl : WorldGen {
     tImplClass(WorldGen);
 
-    noise::Perlin noise;
+    noise::Perlin noise{69};
+
+    BigInt get_approx_height_at(BigInt x, BigInt z) override { return getheight(x, z); }
+
+    inline BigInt getheight(const BigInt& x, const BigInt& z) {
+        double distance = (double)(mp::sqrt(x * x + z * z));
+        return (BigInt)(sin(distance / 1000) * (distance / 4));
+
+        std::vector<noise::Octave> octaves = {
+            {1.0 / 25.0, 10.0},
+            {1.0 / 50.0, 5.0},
+            {1.0 / 100.0, 50.0},
+            {1.0 / 1000.0, 500.0},
+            {1.0 / 10000.0, 5000.0},
+            {1.0 / 30000.0, 2000.0},
+        };
+
+        return BigInt(noise.noise((double)x, 0, (double)z, octaves));
+    }
 
     RawChunk generate_chunk(World::ChunkIndex index, RegistryList& reglist) override {
         // Simulated lag
@@ -26,26 +49,20 @@ struct WorldGenImpl : WorldGen {
 
         for (int x = 0; x < CHUNK_SIZE; x++)
             for (int z = 0; z < CHUNK_SIZE; z++) {
-                int world_x = index.pos.x * CHUNK_SIZE * scalar + x * scalar;
-                int world_z = index.pos.z * CHUNK_SIZE * scalar + z * scalar;
+                BigInt world_x = (long)index.pos.x * (long)(CHUNK_SIZE * scalar) + x * (long)scalar + world->offset.x;
+                BigInt world_z = (long)index.pos.z * (long)(CHUNK_SIZE * scalar) + z * (long)scalar + world->offset.z;
 
-                std::vector<noise::Octave> octaves = {
-                    {1.0 / 25.0, 10.0},
-                    {1.0 / 50.0, 5.0},
-                    {1.0 / 100.0, 100.0},
-                    {1.0 / 1000.0, 500.0},
-                    {1.0 / 10000.0, 5000.0},
-                    {1.0 / 1000000.0, 1000000.0},
-                };
+                BigInt height = world_x == 0 || world_z == 0 ? 0 : getheight(world_x, world_z);
 
-                double height = world_x == 0 || world_z == 0 ? 0.0 : noise.noise(world_x, 0, world_z, octaves);
                 if (world_x == 1 && world_z == 1) run_once console.log << "Height at (1, 1) = " << height;
                 for (int y = 0; y < CHUNK_SIZE; y++) {
-                    int world_y = index.pos.y * CHUNK_SIZE * scalar + y * scalar;
+                    BigInt world_y =
+                        (long)index.pos.y * (long)(CHUNK_SIZE * scalar) + y * (long)scalar + world->offset.y;
                     retval.set(x, y, z, height > world_y ? stone : air);  // Fill with stone below height, air above
                 }
             }
 
         return retval;
     }
+
 } REGISTER_MOD(WorldGenImpl, World);
