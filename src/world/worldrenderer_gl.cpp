@@ -5,6 +5,7 @@
 #include "base/resources.hpp"
 #include <renderer/renderer.hpp>
 #include <base/controls.hpp>
+#include <ui/debug_screen.hpp>
 #include <sstream>
 
 #include <cmath>
@@ -367,11 +368,13 @@ struct WorldRendererGl : BaseRenderer {
             times_str = times_str + "\n" + name + ":" + time.stats();
         }
 
-        run_limited(0.5) console.info << "Triangle count: " << triangle_count
-                                      << "\nFPS: " << (long double)1.0 / (long double)fps_handler->dt
-                                      << "\nChunks drawn: " << chunk_count << " / " << draw_list.size()
-                                      << "\nFog: " << fog_start << " -> " << fog_end << "\n"
-                                      << times_str;
+        if (debug_screen) {
+            debug_screen->show("Triangle count", std::to_string(triangle_count));
+            debug_screen->show("FPS", std::to_string(1.0 / fps_handler->dt));
+            debug_screen->show("Chunks drawn", std::to_string(chunk_count) + " / " + std::to_string(draw_list.size()));
+            debug_screen->show("Fog", std::to_string(fog_start) + " -> " + std::to_string(fog_end));
+            debug_screen->show("Times", times_str);
+        }
 
         // glEnable(GL_CULL_FACE);
         // glCullFace(GL_BACK);
@@ -382,6 +385,7 @@ struct WorldRendererGl : BaseRenderer {
     FpsHandler* fps_handler = nullptr;
     World* world = nullptr;
     ResourceHandler* resource_handler = nullptr;
+    DebugScreen* debug_screen = nullptr;
 } REGISTER_RENDERER_MODULE(
     WorldRendererGl,
     {
@@ -394,4 +398,5 @@ struct WorldRendererGl : BaseRenderer {
         retval->fps_handler = &parent->application->getmod<FpsHandler>();
         retval->resource_handler = &parent->application->getmod<ResourceHandler>();
         retval->world = parent->application->get_subapp_ptr<World>();
+        retval->debug_screen = &parent->application->load_subapp<DebugScreen>();
     });

@@ -5,6 +5,7 @@
 #include <registry/registry.hpp>
 #include <world/blocks/block.hpp>
 #include <structures/assets/models/block.hpp>
+#include <ui/debug_screen.hpp>
 
 struct ChunkMesherImpl : ChunkMesher {
     tImplClass(ChunkMesher);
@@ -18,7 +19,8 @@ struct ChunkMesherImpl : ChunkMesher {
             std::lock_guard __(chunks_done_mutex);
             chunks_done++;
             run_limited(1) {
-                console.log << "Chunks meshed per second: " << chunks_done;
+                if (auto* debug_screen = parent->application->get_subapp_ptr<DebugScreen>())
+                    debug_screen->show("Chunks meshed per second", std::to_string(chunks_done));
                 chunks_done = 0;
             }
         }
