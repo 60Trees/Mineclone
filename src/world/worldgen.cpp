@@ -18,19 +18,24 @@ struct WorldGenImpl : WorldGen {
     BigInt get_approx_height_at(BigInt x, BigInt z) override { return getheight(x, z); }
 
     inline BigInt getheight(const BigInt& x, const BigInt& z) {
-        double distance = (double)(mp::sqrt(x * x + z * z));
-        return (BigInt)(sin(distance / 1000) * (distance / 4));
+        double distance = sqrt((double)(x * x + z * z));
+
+        constexpr double amplitude = 0.15;
+        constexpr double wavelength = 25.0;
+
+        double phase = pow(distance, 0.7) / wavelength;
+        double height = amplitude * distance * sin(phase);
 
         std::vector<noise::Octave> octaves = {
             {1.0 / 25.0, 10.0},
             {1.0 / 50.0, 5.0},
             {1.0 / 100.0, 50.0},
-            {1.0 / 1000.0, 500.0},
-            {1.0 / 10000.0, 5000.0},
-            {1.0 / 30000.0, 2000.0},
+            //{1.0 / 1000.0, 500.0},
+            //{1.0 / 10000.0, 5000.0},
+            //{1.0 / 30000.0, 2000.0},
         };
 
-        return BigInt(noise.noise((double)x, 0, (double)z, octaves));
+        return BigInt(noise.noise((double)x, 0, (double)z, octaves)) + (BigInt)height;
     }
 
     RawChunk generate_chunk(World::ChunkIndex index, RegistryList& reglist) override {

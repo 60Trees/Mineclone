@@ -13,5 +13,17 @@ DISABLE_INDEX          = NO
 GENERATE_TREEVIEW      = YES
 FULL_SIDEBAR           = NO
 HTML_DYNAMIC_SECTIONS  = YES
-EXTRACT_ALL            = NO
-HIDE_UNDOC_CLASSES     = YES
+EXTRACT_ALL            = YES
+HIDE_UNDOC_CLASSES     = NO
+
+# Enable the Graphviz 'dot' tool integration
+HAVE_DOT               = YES
+
+# Generate a graphical class hierarchy representation alongside the text layout
+GRAPHICAL_HIERARCHY    = YES
+
+# Generate detailed inheritance diagrams for each individual class page
+CLASS_GRAPH            = YES
+
+# Optional: Set to YES to capture full inheritance trees across multiple levels
+COLLABORATION_GRAPH    = YES

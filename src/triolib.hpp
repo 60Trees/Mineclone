@@ -244,15 +244,16 @@ namespace triolib {
         }
         template <typename T>
         T* get_subapp_ptr() {
-            SubApp* subapp = subapps[T::sname()].get();
-            if (!subapp) return nullptr;
-            return dynamic_cast<T*>(subapp);
+            const auto it = subapps.find(T::sname());
+            if (it == subapps.end() || !it->second) return nullptr;
+            return dynamic_cast<T*>(it->second.get());
         }
+
         template <typename T>
         T* get_subapp_ptr(const std::string& subappname) {
-            SubApp* subapp = subapps[subappname].get();
-            if (!subapp) return nullptr;
-            return dynamic_cast<T*>(subapp);
+            const auto it = subapps.find(subappname);
+            if (it == subapps.end() || !it->second) return nullptr;
+            return dynamic_cast<T*>(it->second.get());
         }
         template <typename T>
         T& get_subapp(const std::string& subappname) {

@@ -1,15 +1,14 @@
 #include <opengl.hpp>
-#include "base/resources.hpp"
-#include <renderer/glrenderer.hpp>
+#include <base/resources.hpp>
+#include <renderer/renderer.hpp>
 #include <structures/assets/models/block.hpp>
-#include <world/worldrenderer.hpp>
 
 #include <span>
 #include <vector>
 
 using namespace std;
 
-struct UI_RendererGl : GlRenderer {
+struct UI_RendererGl : BaseRenderer {
     tClass;
 
     opengl::VBO vbo;
@@ -60,9 +59,7 @@ struct UI_RendererGl : GlRenderer {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            ResourceHandler::Image img = parent->application->getmod<ResourceHandler>()
-                                             .resources.get("minecraft/textures/block/dirt.png")
-                                             .image();
+            ResourceHandler::Image img = resource_handler->resources.get("minecraft/textures/block/dirt.png").image();
             glTexImage2D(
                 GL_TEXTURE_2D, 0, GL_RGBA, img.width, img.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.bytes().data());
             texture.generateMipmap();
@@ -101,6 +98,7 @@ struct UI_RendererGl : GlRenderer {
     }
 
     void loop() override {
+        glDisable(GL_DEPTH_TEST);
         shaderProgram.use();
         vao.bind();
         texture.bind();
@@ -108,5 +106,16 @@ struct UI_RendererGl : GlRenderer {
     }
     void quit() override {}
 
-    bool order_loop_does_go_after(const triolib::Module* oth) const override { return true; }
-} REGISTER_MOD(UI_RendererGl, MainWorldRenderer);
+    bool order_loop_does_go_after(const BaseRenderer* oth) const override { return true; }
+
+    ResourceHandler* resource_handler = nullptr;
+} REGISTER_RENDERER_MODULE(
+    UI_RendererGl,
+    {
+        if (!parent->application->getmod<ResourceHandler>().has_loaded) return false;
+        return true;
+    },
+    { return renderer->backend == "OpenGL" && renderer->shader_backend == "GLSL"; },
+    {
+        retval->resource_handler = &parent->application->getmod<ResourceHandler>();
+    });

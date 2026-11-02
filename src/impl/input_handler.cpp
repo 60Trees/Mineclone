@@ -9,10 +9,8 @@
 
 static SDL_Window* _window = nullptr;
 
-struct RelativeSdlMouseMode : Renderer {
+struct RelativeSdlMouseMode : triolib::Module {
     tClass;
-
-    void before_sdl_init() override {}
 
     bool enabled = false;
     bool reported_failure = false;

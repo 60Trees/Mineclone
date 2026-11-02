@@ -62,6 +62,17 @@ struct ResourceHandlerImpl : ResourceHandler {
         }
 
         auto end = chrono::high_resolution_clock::now();
+
+        for (auto& callback : run_after_loading) {
+            try {
+                callback(*this);
+            } catch (const exception& e) {
+                console.err << "Error " + get_dynamic_name(e) + " in resource loading callback: " << e.what();
+            } catch (...) {
+                console.err << "Unknown error in resource loading callback";
+            }
+        }
+
         console.debug << "Finished loading resources, time="
                       << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms";
         has_loaded = true;

@@ -1,5 +1,4 @@
 #include "world.hpp"
-#include <base/poller.hpp>
 #include <base/fps_handler.hpp>
 #include <glm/common.hpp>
 #include "triolib.hpp"
@@ -44,16 +43,18 @@ RawChunk& RawChunk::operator=(const RawChunk& other) {
     return *this;
 }
 
-struct WorldImpl : World, Poller {
+struct WorldImpl : World {
     tImplClass(World);
-    WorldImpl() : Poller(5) {}
+
+    WorldImpl() = default;
 
     void init() override { SubApp::init(); }
     void loop() override {
         SubApp::loop();
-        Poller::trypoll(this);
+        run_limited(1) try_snapback();
     }
-    void poll() override {
+
+    void try_snapback() {
         glm::vec<3, double> distance;
         if (camera.x > snap_back_threshold) distance.x -= snap_back_threshold;
         if (camera.x < -snap_back_threshold) distance.x += snap_back_threshold;
@@ -68,6 +69,7 @@ struct WorldImpl : World, Poller {
 
         for (auto& [_, callback] : snap_back_callback) callback(distance);
     }
+
     void quit() override { SubApp::quit(); }
 
     bool chunk_in_fov(Vec3i pos, PosLodLevel lod, double aspect_ratio = 2.0) const override {
@@ -242,8 +244,9 @@ struct ChunkMeshLoop : World::Module {
             it->second.mesh_missing_neighbors.store(missing);
         }
 
-        // 2) Mesh without holding any lock. NOTE: runs concurrently on several threads, so ChunkMesher::mesh
-        //    must not use shared mutable state (use thread_local / local scratch buffers).
+        // 2) Mesh without holding any lock.
+        // NOTE: runs concurrently on several threads, so ChunkMesher::mesh
+        // must not use shared mutable state (use thread_local / local scratch buffers).
         const auto ptr = [&](size_t i) -> const RawChunk* { return neighbors[i] ? &*neighbors[i] : nullptr; };
         auto vertices = mesher->mesh(index, *chunk, ptr(0), ptr(1), ptr(2), ptr(3), ptr(4), ptr(5));
         vertices.shrink_to_fit();
@@ -278,7 +281,7 @@ struct ChunkMeshLoop : World::Module {
             try {
                 worked = meshloop();
             } catch (const std::exception& e) {
-                run_limited(1) console.log << "Mesher error: " << e.what();
+                console.err << "Mesher error: " << e.what();
             }
             if (!worked) std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }

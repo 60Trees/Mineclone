@@ -112,7 +112,10 @@ namespace triolib {
         }
     }
     void Application::quit() {
-        for (auto it = subapps.rbegin(); it != subapps.rend(); ++it) it->second->quit();
+        for (auto it = subapps.rbegin(); it != subapps.rend(); it++) {
+            debug_only tassert(it->second != nullptr);
+            it->second->quit();
+        }
         for (auto* mod : init_mod_order | std::views::reverse) mod->quit();
     }
 
@@ -140,7 +143,7 @@ namespace triolib {
 
     SubApp& Application::load_subapp(std::string_view name) {
         const auto key = std::string{name};
-        if (auto it = subapps.find(key); it != subapps.end()) return *it->second;
+        if (subapps.contains(key)) return *subapps.at(key).get();
         for (const auto& [registered_name, factory] : subapp_factories()) {
             if (registered_name != key) continue;
             auto subapp = factory();

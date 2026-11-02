@@ -1,19 +1,25 @@
-#include "glrenderer.hpp"
-#include <SDL3/SDL_cpuinfo.h>
-#include <SDL3/SDL_gpu.h>
+#include "renderer.hpp"
+#include "triolib.hpp"
+
+#include <SDL3/SDL.h>
 #include <opengl.hpp>
 #include <unordered_set>
 #include <cstdlib>
-#include "base/resources.hpp"
 #include <platform.hpp>
 
 using namespace std;
 using namespace triolib;
 
-struct MainGlRendererImpl : MainGlRenderer {
-    tImplClass(MainGlRenderer);
+struct MainGlRendererImpl : MainRenderer {
+    tImplClass(MainRenderer);
 
-    MainGlRendererImpl() : MainGlRenderer() {}
+    SDL_GLContext glcontext = nullptr;
+
+    MainGlRendererImpl() {
+        backend = "OpenGL";
+        shader_backend = "GLSL";
+    }
+
     glm::vec<2, int> size;
 
     unordered_set<string_view> gl_extensions{};
@@ -68,9 +74,21 @@ struct MainGlRendererImpl : MainGlRenderer {
 
         load_all_mods();
         for (auto* mod : init_mod_order) {
-            GlRenderer* glmod = dynamic_cast<GlRenderer*>(mod);
-            if (glmod) glmod->main_renderer = this;
             mod->init();
+            auto* renderermod = dynamic_cast<BaseRendererModule*>(mod);
+            if (!renderermod) continue;
+            if (!renderermod->is_compatible()) {
+                opengl::gl_err << "Renderer module " << mod->vname() << " is not compatible with renderer " << vname()
+                               << " (" << this->backend << " " << this->shader_backend << ")";
+                continue;
+            }
+            if (!renderermod->is_active()) continue;
+            auto renderer = renderermod->create_renderer();
+            renderer->init();
+            auto ptr = renderer.get();
+            size_t hash = typeid(*ptr).hash_code();
+            opengl::gl_log << "Activated renderer: " << renderer->vname();
+            renderers.insert({hash, std::move(renderer)});
         }
     }
 
@@ -78,11 +96,48 @@ struct MainGlRendererImpl : MainGlRenderer {
         SDL_GetWindowSizeInPixels(window, &size.x, &size.y);
         glViewport(0, 0, size.x, size.y);
 
-        SubApp::loop();
+        for (auto* mod : loop_mod_order) mod->loop();
+
+        // 1. Add new active renderers
+        for (auto* mod : loop_mod_order) {
+            auto* renderermod = dynamic_cast<BaseRendererModule*>(mod);
+            if (!renderermod) continue;
+            size_t hash = typeid(*renderermod).hash_code();
+
+            if (renderers.contains(hash)) continue;
+            if (!renderermod->is_compatible()) continue;
+            if (!renderermod->is_active()) continue;
+
+            auto renderer = renderermod->create_renderer();
+            renderer->init();
+            opengl::gl_log << "Activated renderer: " << renderer->vname();
+            renderers.insert({hash, std::move(renderer)});
+        }
+
+        // 2. Remove inactive renderers
+        for (auto it = renderers.begin(); it != renderers.end();) {
+            auto* mod = dynamic_cast<BaseRendererModule*>(it->second->_parent_module);
+            if (!mod || !mod->is_active()) {
+                opengl::gl_log << "Deactivated renderer: " << it->second->vname();
+                it->second->quit();
+                it = renderers.erase(it);
+            } else {
+                it++;
+            }
+        }
+
+        // 3. Render all active renderers
+        for (auto& [__, renderer] : renderers) {
+            renderer->loop();
+        }
+
+        if (renderers.empty()) run_limited(1) opengl::gl_err << "No active renderers";
 
         SDL_GL_SwapWindow(window);
     }
     void quit() override {
+        for (auto& [_, renderer] : renderers) renderer->quit();
+        renderers.clear();
         SubApp::quit();
 
         if (glcontext) {
@@ -97,7 +152,7 @@ struct MainGlRendererImpl : MainGlRenderer {
     }
 
     public:
-    bool has_extension(std::string_view ext) const override { return gl_extensions.contains(ext); }
+    bool has_extension(string_view ext) const override { return gl_extensions.contains(ext); }
 
     const glm::vec<2, int>& window_size() const override { return size; }
 

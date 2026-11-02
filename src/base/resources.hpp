@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cmrc/cmrc.hpp"
+#include <atomic>
 #include <cmrc/cmrc.hpp>
 #include <filesystem>
 #include <glm/glm.hpp>
@@ -17,8 +18,10 @@ CMRC_DECLARE(assets);
 
 struct ResourceHandler : triolib::AppModule {
     tClass;
-    bool has_loaded = false;
-    bool has_started_loading = false;
+    std::atomic_bool has_loaded = false;
+    std::atomic_bool has_started_loading = false;
+
+    std::vector<std::function<void(ResourceHandler&)>> run_after_loading{};
 
     enum class ResourceOriginType { ZipFromFs, FolderFromFs, ZipFromCmrc, FolderFromCmrc };
     std::vector<std::pair<std::string, ResourceOriginType>> resource_origins;
@@ -28,7 +31,7 @@ struct ResourceHandler : triolib::AppModule {
 
     bool order_init_does_go_after(const triolib::AppModule*) const override { return true; }
 
-    void init() override { start_loading(); }
+    void init() override {}
     void loop() override {}
     void quit() override {}
 
