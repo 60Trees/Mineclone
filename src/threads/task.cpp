@@ -53,7 +53,7 @@ bool WorkList::has_work(std::string_view name) {
     return works.contains(std::string{name});
 }
 
-void WorkList::record_work(std::string_view name, chrono::nanoseconds working_time) {
+void WorkList::record_work(std::string_view name, chrono::nanoseconds working_time, bool completed) {
     const auto now = chrono::steady_clock::now();
     lock_guard lock(stats_mutex);
     auto& stat = stats[std::string{name}];
@@ -62,6 +62,7 @@ void WorkList::record_work(std::string_view name, chrono::nanoseconds working_ti
         stat.last_update = now;
     }
     stat.working_time += working_time;
+    if (completed) stat.completed_work.emplace_back(now, working_time);
 }
 
 map<string, double> WorkList::working_time_per_second() const {
@@ -71,6 +72,23 @@ map<string, double> WorkList::working_time_per_second() const {
     for (const auto& [name, stat] : stats) {
         const double elapsed = max(1e-6, chrono::duration<double>(now - stat.last_update).count());
         result[name] = chrono::duration<double>(stat.working_time).count() / elapsed;
+    }
+    return result;
+}
+
+map<string, double> WorkList::average_work_time() const {
+    const auto now = chrono::steady_clock::now();
+    lock_guard lock(stats_mutex);
+    map<string, double> result;
+    for (auto& [name, stat] : stats) {
+        while (!stat.completed_work.empty() && now - stat.completed_work.front().first >= chrono::seconds(1))
+            stat.completed_work.pop_front();
+
+        chrono::nanoseconds total{};
+        for (const auto& [_, duration] : stat.completed_work) total += duration;
+        result[name] = stat.completed_work.empty()
+                           ? 0.0
+                           : chrono::duration<double>(total).count() / static_cast<double>(stat.completed_work.size());
     }
     return result;
 }
@@ -131,14 +149,14 @@ struct ThreadPoolImpl : ThreadPool {
             const auto start = chrono::steady_clock::now();
             const bool worked = it->second->work(main_list);
             const auto elapsed = chrono::duration_cast<chrono::nanoseconds>(chrono::steady_clock::now() - start);
-            main_list.record_work(candidate, elapsed);
+            main_list.record_work(candidate, elapsed, worked);
             return worked;
         }
 
         const auto start = chrono::steady_clock::now();
         const bool worked = work->work(main_list);
         const auto elapsed = chrono::duration_cast<chrono::nanoseconds>(chrono::steady_clock::now() - start);
-        main_list.record_work(candidate, elapsed);
+        main_list.record_work(candidate, elapsed, worked);
         return worked;
     }
 
@@ -224,6 +242,9 @@ struct ThreadPoolImpl : ThreadPool {
                     DebugScreen::Corner::BottomRight, "Thread " + to_string(i), to_string(round(usage[i] * 100.0) / 100.0) + "s/s");
             for (const auto& [name, working_time] : main_list.working_time_per_second())
                 debug->show_at(DebugScreen::Corner::TopRight, name, to_string(round(working_time * 100.0) / 100.0) + "s/s");
+            for (const auto& [name, average_time] : main_list.average_work_time())
+                debug->show_at(
+                    DebugScreen::Corner::TopRight, name + " average", to_string(round(average_time * 1000.0) / 1000.0) + "s");
         }
     }
 

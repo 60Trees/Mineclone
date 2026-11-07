@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <chrono>
+#include <deque>
 #include <map>
 #include <set>
 #include <shared_mutex>
@@ -77,11 +78,14 @@ struct WorkList {
     struct WorkStat {
         std::chrono::steady_clock::time_point last_update;
         std::chrono::nanoseconds working_time{};
+        mutable std::deque<std::pair<std::chrono::steady_clock::time_point, std::chrono::nanoseconds>> completed_work;
     };
     mutable std::mutex stats_mutex;
     std::map<std::string, WorkStat> stats;
     std::map<std::string, double> working_time_per_second() const;
-    void record_work(std::string_view name, std::chrono::nanoseconds working_time);
+    /// @return Average duration in seconds of completed work actions from the last second.
+    std::map<std::string, double> average_work_time() const;
+    void record_work(std::string_view name, std::chrono::nanoseconds working_time, bool completed);
     /**
      * @brief Removes the work specified.
      * @param name The name of the work to remove. If blank or already removed, it will ignore.
