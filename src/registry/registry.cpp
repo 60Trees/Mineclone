@@ -1,7 +1,14 @@
 #include "registry.hpp"
 
-std::map<RawRegistryEntry, std::unique_ptr<RegistryEntry> (*)()> registry_entry_constructors{};
-std::vector<std::string> registry_entry_errors{};
+std::map<RawRegistryEntry, std::unique_ptr<RegistryEntry> (*)()>& registry_entry_constructors() {
+    static std::map<RawRegistryEntry, std::unique_ptr<RegistryEntry> (*)()> value;
+    return value;
+}
+
+std::vector<std::string>& registry_entry_errors() {
+    static std::vector<std::string> value;
+    return value;
+}
 
 using namespace std;
 using namespace triolib;
@@ -53,8 +60,8 @@ struct RegistryListImpl : RegistryList {
             mod->init();
         }
 
-        for (auto& err : registry_entry_errors) console.err << "Registry error:\n" << err;
-        registry_entry_errors.clear();
+        for (auto& err : registry_entry_errors()) console.err << "Registry error:\n" << err;
+        registry_entry_errors().clear();
     }
     void quit() override {
         for (auto& mod : mods) mod->quit();

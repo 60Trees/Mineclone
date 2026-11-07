@@ -76,8 +76,8 @@ struct RegistryEntry {
     RegistryUint resindex;
 };
 
-extern std::map<RawRegistryEntry, std::unique_ptr<RegistryEntry> (*)()> registry_entry_constructors;
-extern std::vector<std::string> registry_entry_errors;
+std::map<RawRegistryEntry, std::unique_ptr<RegistryEntry> (*)()>& registry_entry_constructors();
+std::vector<std::string>& registry_entry_errors();
 
 /// Resource entry
 #define RESENTRY(classname, __resid, __regid)                                                                  \
@@ -87,11 +87,11 @@ extern std::vector<std::string> registry_entry_errors;
          *  TODO: Replace warn with a priority system (double).                                                \
          *  Higher priority = overrides potential lower priority.                                              \
          */                                                                                                    \
-        if (registry_entry_constructors.contains({__resid, __regid})) {                                        \
-            registry_entry_errors.push_back(                                                                   \
+        if (registry_entry_constructors().contains({__resid, __regid})) {                                      \
+            registry_entry_errors().push_back(                                                                 \
                 "Duplicate registry entry: " + std::string(__resid) + " in registry " + std::string(__regid)); \
         }                                                                                                      \
-        registry_entry_constructors[{__resid, __regid}] = []() -> std::unique_ptr<RegistryEntry> {             \
+        registry_entry_constructors()[{__resid, __regid}] = []() -> std::unique_ptr<RegistryEntry> {           \
             auto retval = std::make_unique<classname>();                                                       \
             retval->resid = __resid;                                                                           \
             return retval;                                                                                     \
@@ -160,7 +160,7 @@ struct Registry : triolib::Module {
     void init() override {
         quit();
         regid = get_regid();
-        for (auto& [raw, constructor] : registry_entry_constructors) {
+        for (auto& [raw, constructor] : registry_entry_constructors()) {
             if (raw.regid == this->regid) {
                 auto entry = constructor();
                 auto i = get_empty_index(entry->resid);

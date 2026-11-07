@@ -14,6 +14,7 @@
 #include <shared_mutex>
 #include <thread>
 #include <vector>
+#include <threads/task.hpp>
 
 Tile TileNull = {0, 0};
 
@@ -70,7 +71,10 @@ struct WorldImpl : World {
         for (auto& [_, callback] : snap_back_callback) callback(distance);
     }
 
-    void quit() override { SubApp::quit(); }
+    void quit() override {
+        if (auto* pool = application->get_subapp_ptr<ThreadPool>()) pool->quit();
+        SubApp::quit();
+    }
 
     bool chunk_in_fov(Vec3i pos, PosLodLevel lod, double aspect_ratio = 2.0) const override {
         const double scale = std::ldexp(1.0, static_cast<int>(lod));
@@ -122,15 +126,9 @@ struct WorldImpl : World {
 struct ChunkMeshLoop : World::Module {
     tClass;
 
-    /// Tune this. Leave a couple of cores for the main/render thread and the world loader.
-    static size_t default_worker_count() {
-        const size_t hw = std::max<size_t>(1, std::thread::hardware_concurrency());
-        return hw > 3 ? std::min<size_t>(hw - 2, 12) : 1;
-    }
-
     ChunkMesher* mesher = nullptr;
     std::atomic_bool done = false;
-    std::vector<std::thread> workers;
+    std::unique_ptr<WorkAdder> work_adder;
 
     /// Chunks currently being meshed by some worker. A chunk that is re-queued while it is in flight stays in the
     /// pending set and is only picked up once the running job finishes, so two workers never mesh the same chunk
@@ -165,41 +163,38 @@ struct ChunkMeshLoop : World::Module {
         ~InFlightGuard() { self.release(idx); }
     };
 
-    /// Pops the pending chunk that is closest to the camera, measured in chunk widths *of its own LOD*,
-    /// so coarse fallback chunks are not starved by a flood of LOD 0 work.
+    /// Pops the pending chunk that is closest to the camera in world space.
+    /// This keeps newly visible chunks ahead of distant work regardless of set ordering.
     /// Thread-safe: the chosen chunk is removed from the pending set and marked in-flight atomically.
     std::optional<World::ChunkIndex> take_next() {
-        Camera cam;
-        {
-            std::shared_lock camera_lock(world->camera_mutex);
-            cam = world->camera;
-        }
-
         auto& data = world->mesh_data;
         // Lock order: chunks_to_mesh_mutex -> in_flight_mutex (release() only takes in_flight_mutex).
         std::lock_guard pending_lock(data.chunks_to_mesh_mutex);
         std::lock_guard flight_lock(in_flight_mutex);
 
         std::optional<World::ChunkIndex> best;
-        double best_score = 0.0;
+        double best_distance = 0.0;
         for (PosLodLevel lod = 0; lod < data.chunks_to_mesh.size(); ++lod) {
-            const double size = static_cast<double>(CHUNK_SIZE) * std::ldexp(1.0, static_cast<int>(lod));
             for (const Vec3i& pos : data.chunks_to_mesh[lod]) {
-                const double dx = ((pos.x + 0.5) * size - cam.x) / size;
-                const double dy = ((pos.y + 0.5) * size - cam.y) / size;
-                const double dz = ((pos.z + 0.5) * size - cam.z) / size;
-                const double score = dx * dx + dy * dy + dz * dz;
-                if (best && score >= best_score) continue;
                 const World::ChunkIndex candidate{pos, lod};
                 if (is_in_flight_locked(candidate)) continue;  // leave it queued for later
-                best = candidate;
-                best_score = score;
+
+                const Vec3i camera_chunk = world->camchunk(lod);
+                const double scale = std::ldexp(1.0, static_cast<int>(lod));
+                const double dx = (pos.x - camera_chunk.x) * scale;
+                const double dy = (pos.y - camera_chunk.y) * scale;
+                const double dz = (pos.z - camera_chunk.z) * scale;
+                const double distance = dx * dx + dy * dy + dz * dz;
+                if (!best || distance < best_distance || (distance == best_distance && lod < best->lod)) {
+                    best = candidate;
+                    best_distance = distance;
+                }
             }
         }
-        if (best) {
-            data.chunks_to_mesh[best->lod].erase(best->pos);
-            in_flight.push_back(*best);
-        }
+
+        if (!best) return std::nullopt;
+        data.chunks_to_mesh[best->lod].erase(best->pos);
+        in_flight.push_back(*best);
         return best;
     }
 
@@ -290,15 +285,13 @@ struct ChunkMeshLoop : World::Module {
     void init() override {
         World::Module::init();
         mesher = &world->getmod<ChunkMesher>();
-        const size_t count = default_worker_count();
-        workers.reserve(count);
-        for (size_t i = 0; i < count; ++i) workers.emplace_back([this]() { worker_main(); });
+        auto& pool = parent->application->load_subapp<ThreadPool>();
+        work_adder = std::make_unique<WorkAdder>(pool.main_list, [this](WorkList&) { return meshloop(); }, "worldmesher", 1);
     }
     void loop() override {}
     void quit() override {
         done = true;
-        for (auto& t : workers)
-            if (t.joinable()) t.join();
-        workers.clear();
+        parent->application->get_subapp<ThreadPool>().shutdown();
+        work_adder.reset();
     }
 } REGISTER_MOD(ChunkMeshLoop, World);

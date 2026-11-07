@@ -8,18 +8,17 @@
 
 #include "worldloader.hpp"
 #include <algorithm>
-#include <chrono>
 #include <optional>
+#include <random>
 #include <set>
 #include <stdexcept>
-#include <stop_token>
-#include <thread>
 #include <vector>
 #include <world/worldgen.hpp>
 #include <unordered_map>
 #include <unordered_set>
 #include "triolib.hpp"
 #include "world/world.hpp"
+#include "threads/task.hpp"
 
 struct WorldLoaderImpl : WorldLoader {
     tImplClass(WorldLoader);
@@ -28,6 +27,7 @@ struct WorldLoaderImpl : WorldLoader {
     int lod_count = 8;
     std::unordered_map<PosLodLevel, std::set<Vec3i>> in_progress_chunks;
     std::mutex in_progress_mutex;
+    std::unique_ptr<WorkAdder> work_adder;
 
     WorldLoaderImpl() {
         get_next_work = [&](PosLodLevel lod) -> std::optional<std::pair<Vec3i, WorldLoader::WorkMode>> {
@@ -87,10 +87,10 @@ struct WorldLoaderImpl : WorldLoader {
                     for (int z = -lod_radius; z <= lod_radius; z++) {
                         const Vec3i pos{cam_chunk.x + x, cam_chunk.y + y, cam_chunk.z + z};
                         const Vec3i origin{pos.x & ~1, pos.y & ~1, pos.z & ~1};
-                        // if (!world->chunk_in_fov({pos.x, pos.y, pos.z}, lod)) {
-                        //     lazy_chunks.insert(pos);
-                        //     continue;
-                        // }
+                        if (!world->chunk_in_fov({pos.x, pos.y, pos.z}, lod)) {
+                            lazy_chunks.insert(pos);
+                            continue;
+                        }
                         for (int dx = 0; dx < 2; dx++)
                             for (int dy = 0; dy < 2; dy++)
                                 for (int dz = 0; dz < 2; dz++)
@@ -130,24 +130,12 @@ struct WorldLoaderImpl : WorldLoader {
                 return std::nullopt;
             };
 
-            thread_local std::unordered_map<PosLodLevel, unsigned> state_by_lod;
-            switch ((++state_by_lod[lod]) % 3) {
-                case 0:
-                    if (auto work = try_primary_chunks()) return work;
-                    if (auto work = try_secondary_chunks()) return work;
-                    if (auto work = try_cleanup()) return work;
-                    break;
-                case 1:
-                    if (auto work = try_secondary_chunks()) return work;
-                    if (auto work = try_cleanup()) return work;
-                    if (auto work = try_primary_chunks()) return work;
-                    break;
-                case 2:
-                    if (auto work = try_cleanup()) return work;
-                    if (auto work = try_primary_chunks()) return work;
-                    if (auto work = try_secondary_chunks()) return work;
-                    break;
-            }
+            // Keep chunks that can be seen by the camera ahead of border-support and
+            // cleanup work. The latter can involve a large number of chunks when the
+            // camera moves, so rotating these passes can delay the nearest chunks.
+            if (auto work = try_primary_chunks()) return work;
+            if (auto work = try_secondary_chunks()) return work;
+            if (auto work = try_cleanup()) return work;
 
             return std::nullopt;
         };
@@ -156,38 +144,19 @@ struct WorldLoaderImpl : WorldLoader {
             tassert(in_progress_chunks[lod].contains(pos));
             in_progress_chunks[lod].erase(pos);
         };
-        threads_per_lod = [](PosLodLevel lod) {
-            return 5;
-            // float fretval = 6;
-            // while (lod > 0) {
-            //     fretval -= 1.25;
-            //     lod -= 1;
-            // }
-            // int retval = (int)std::floor(fretval);
-            // if (retval == 0) retval = 1;
-            // return retval;
+        lod_priority = [](PosLodLevel lod) {
+            return std::max(8u / (lod + 1), 1u);
         };
         get_chunk_radius = [](PosLodLevel lod) {
-            return 10;
+            return 4;
             // static std::vector<uint> radii{6, 5, 4, 3, 2, 1};
             // return lod < radii.size() ? radii[lod] : 1;
         };
     }
 
-    virtual bool tick_unloader_thread() { return false; }
-
-    // @brief Loader threads. Each one serves one or more LODs, see WorldLoader::plan_threads().
-    std::vector<std::jthread> threads;
-    std::jthread unloader_thread{[&](std::stop_token stop) {
-        while (!stop.stop_requested())
-            if (!tick_unloader_thread()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }};
-
-    // @brief Resizes the LOD arrays and (re)builds the loader threads from `threads_per_lod`.
+    // @brief Resizes the LOD arrays used by the shared loader work item.
     virtual void set_lod_count(int count) {
         count = std::max(count, 0);
-
-        threads.clear();
 
         lod_count = count;
         {
@@ -208,8 +177,6 @@ struct WorldLoaderImpl : WorldLoader {
             }
         }
 
-        for (auto& lods : plan_threads(static_cast<PosLodLevel>(count)))
-            threads.emplace_back([this, lods = std::move(lods)](std::stop_token stop) { run_thread(stop, lods); });
     }
 
     void init() override {
@@ -220,6 +187,20 @@ struct WorldLoaderImpl : WorldLoader {
             throw std::runtime_error("No world generator found!");
         }
         set_lod_count(lod_count);
+        auto& pool = parent->application->load_subapp<ThreadPool>();
+        work_adder = std::make_unique<WorkAdder>(pool.main_list, [this](WorkList&) {
+            std::vector<PosLodLevel> lods;
+            for (PosLodLevel lod = 0; lod < static_cast<PosLodLevel>(world->levels.size()); ++lod)
+                for (uint i = 0; i < lod_priority(lod); ++i) lods.push_back(lod);
+            static thread_local std::mt19937 generator{std::random_device{}()};
+            while (!lods.empty()) {
+                std::uniform_int_distribution<std::size_t> distribution(0, lods.size() - 1);
+                const PosLodLevel lod = lods[distribution(generator)];
+                if (loop_thread(lod, parent->application->get_subapp<RegistryList>())) return true;
+                lods.erase(std::remove(lods.begin(), lods.end(), lod), lods.end());
+            }
+            return false;
+        }, "worldloader", 1);
     }
 
     inline bool loop_thread(PosLodLevel lod, RegistryList& reglist) {
@@ -279,31 +260,12 @@ struct WorldLoaderImpl : WorldLoader {
         return false;
     }
 
-    /// One loader thread. With several LODs it polls them round-robin, starting after the LOD it served last,
-    /// so every LOD that has work gets an equal share of this thread's time.
-    virtual void run_thread(std::stop_token stop, const std::vector<PosLodLevel>& lods) {
-        RegistryList& reglist = parent->application->get_subapp<RegistryList>();
-        if (lods.empty()) return;
-
-        std::size_t cursor = 0;
-        while (!stop.stop_requested()) {
-            bool worked = false;
-            for (std::size_t i = 0; i < lods.size() && !stop.stop_requested(); ++i) {
-                const std::size_t index = (cursor + i) % lods.size();
-                if (!loop_thread(lods[index], reglist)) continue;
-                cursor = (index + 1) % lods.size();
-                worked = true;
-                break;
-            }
-            if (!worked) std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-
     void loop() override {}
 
     void quit() override {
         running = false;
-        threads.clear();
+        parent->application->get_subapp<ThreadPool>().shutdown();
+        work_adder.reset();
     }
 
 } REGISTER_MOD(WorldLoaderImpl, World);

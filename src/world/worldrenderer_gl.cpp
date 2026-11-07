@@ -21,6 +21,8 @@
 struct WorldRendererGl : BaseRenderer {
     tClass;
 
+    bool require_all_children = true;
+
     /// pos(3) + light(1) + tileUV(2) + tileRect(4)
     static constexpr size_t FLOATS_PER_VERTEX = 10;
 
@@ -148,10 +150,13 @@ struct WorldRendererGl : BaseRenderer {
         };
         const auto children_ready = [&](PosLodLevel lod, const Vec3i& p) {
             if (lod == 0) return false;
-            for (int i = 0; i < 8; ++i)
-                if (!has(lod - 1, Vec3i{p.x * 2 + (i & 1), p.y * 2 + ((i >> 1) & 1), p.z * 2 + ((i >> 2) & 1)}))
-                    return false;
-            return true;
+            int ready = 0;
+            for (int i = 0; i < 8; i++) 
+                if (has(lod - 1, Vec3i{p.x * 2 + (i & 1), p.y * 2 + ((i >> 1) & 1), p.z * 2 + ((i >> 2) & 1)})) 
+                    ready++;
+                
+            
+            return require_all_children ? ready == 8 : ready == 0;
         };
         const auto parent_of = [](const Vec3i& p) { return Vec3i{p.x >> 1, p.y >> 1, p.z >> 1}; };
 
@@ -190,7 +195,7 @@ struct WorldRendererGl : BaseRenderer {
             GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.bytes().data());
 
 #ifdef __APPLE__
-        opengl::gl_err << "You might have some issues with macos. Fuck macos. It sucks";
+        opengl::gl_err << "You might have some issues with macos + opengl. Too bad. Fuck macos. It sucks.";
 #endif
 
         {

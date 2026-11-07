@@ -479,7 +479,8 @@ namespace triolib {
 #define __ /**                                                                                                      \
             * DO NOT USE IN HEADER FILES. EVER.                                                                     \
             * Rust-style no name discardable variables, e.g `int __ = 5;` will keep it in scope as if it's a normal \
-            * variable.                                                                                             \
+            * variable. It is a random name, allowing you to do something like                                      \
+            * `std::lock_guard __(some_mutex); std::lock_guard __(other_mutex);` without names clashing             \
             */                                                                                                      \
     _concat(_concat(_unique_name_, __COUNTER__), __LINE__)
 

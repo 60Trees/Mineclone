@@ -183,7 +183,7 @@ static constexpr std::string_view newline = "\n";
 static constexpr std::string_view midnewl = GREY " │ " RESET;
 static constexpr std::string_view endnewl = GREY " └ " RESET;
 
-#define __mkpref(coloured_text) (std::string(GREY) + TIMESTAMP + " " RESET coloured_text RESET ": ")
+#define __mkpref(coloured_text) logger::string_function{[] { return std::string(GREY) + TIMESTAMP + " " RESET coloured_text RESET ": "; }}
 
 Console console{
     .enabled = true,
@@ -214,7 +214,8 @@ logger::Logger Console::title(std::string_view _title) { return title(_title, co
 logger::Logger Console::title(std::string_view _title, const logger::Logger& extends_off) {
     logger::Logger retval = extends_off;
 
-    retval.prefix = std::string(GREY) + TIMESTAMP + " " RESET + std::string(_title) + RESET + ": ";
+    const std::string title = std::string(_title);
+    retval.prefix = logger::string_function{[title] { return std::string(GREY) + TIMESTAMP + " " RESET + title + RESET + ": "; }};
 
     return retval;
 }

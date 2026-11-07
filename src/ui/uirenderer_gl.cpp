@@ -17,7 +17,7 @@ using namespace std;
 struct DebugScreenImpl : DebugScreen {
     tImplClass(DebugScreen);
 
-    map<string, string> values;
+    map<Corner, Entries> values;
     mutable mutex values_mutex;
 
     void init() override {}
@@ -25,16 +25,24 @@ struct DebugScreenImpl : DebugScreen {
     void quit() override { SubApp::quit(); }
 
     void show(string key, string value) override {
+        show_at(Corner::TopLeft, std::move(key), std::move(value));
+    }
+    void show_at(Corner corner, string key, string value) override {
         lock_guard lock(values_mutex);
         if (value.empty()) {
-            values.erase(key);
+            values[corner].erase(key);
             return;
         }
-        values.insert_or_assign(std::move(key), std::move(value));
+        values[corner].insert_or_assign(std::move(key), std::move(value));
     }
     Entries entries() const override {
         lock_guard lock(values_mutex);
-        return values;
+        return entries(Corner::TopLeft);
+    }
+    Entries entries(Corner corner) const override {
+        lock_guard lock(values_mutex);
+        const auto it = values.find(corner);
+        return it == values.end() ? Entries{} : it->second;
     }
 } REGISTER_SUBAPP(DebugScreenImpl);
 
@@ -55,7 +63,7 @@ struct UI_RendererGl : BaseRenderer {
     GLint screen_size_location = -1;
     GLint textured_location = -1;
     GLint opacity_location = -1;
-    float gui_scale = 4.0f;
+    float gui_scale = 3.0f;
 
     // clang-format off
     vector<float> vertices {
@@ -157,7 +165,9 @@ struct UI_RendererGl : BaseRenderer {
         const float glyph_height = 8.0f * gui_scale;
         const float shadow_offset = gui_scale;
         const float margin = 8.0f;
-        const auto entries = debug_screen->entries();
+        for (const auto corner : {DebugScreen::Corner::TopLeft, DebugScreen::Corner::TopRight,
+             DebugScreen::Corner::BottomLeft, DebugScreen::Corner::BottomRight}) {
+        const auto entries = debug_screen->entries(corner);
 
         float block_width = 0.0f;
         float block_height = 0.0f;
@@ -180,7 +190,6 @@ struct UI_RendererGl : BaseRenderer {
             block_height += static_cast<float>(line_count) * glyph_height;
         }
 
-        const auto corner = debug_screen->corner;
         const auto window_size = renderer->window_size();
         const float screen_width = static_cast<float>(window_size.x);
         const float screen_height = static_cast<float>(window_size.y);
@@ -202,7 +211,7 @@ struct UI_RendererGl : BaseRenderer {
                 }
                 const auto glyph = static_cast<unsigned char>(character);
                 const float u0 = static_cast<float>(glyph % 16) / 16.0f;
-                const float v0 = static_cast<float>(glyph / 16) / 16.0f;
+                const float v0 = static_cast<float>(glyph >> 4) / 16.0f;
                 const float u1 = u0 + 1.0f / 16.0f;
                 const float v1 = v0 + 1.0f / 16.0f;
                 const float x1 = x + glyph_width;
@@ -234,6 +243,7 @@ struct UI_RendererGl : BaseRenderer {
                 x = x1;
             }
             y += glyph_height;
+        }
         }
 
         glDisable(GL_DEPTH_TEST);
