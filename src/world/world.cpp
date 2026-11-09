@@ -21,6 +21,170 @@ Tile TileNull = {0, 0};
 using namespace std;
 using namespace triolib;
 
+uint64_t Vec3i::Vec3iHash::mix(uint64_t x) noexcept {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+size_t Vec3i::Vec3iHash::operator()(const Vec3i& v) const noexcept {
+    uint64_t h = mix(static_cast<uint32_t>(v.x));
+    h = mix(h ^ static_cast<uint32_t>(v.y));
+    h = mix(h ^ static_cast<uint32_t>(v.z));
+    return static_cast<size_t>(h);
+}
+bool Tile::operator==(const Tile& other) const { return id == other.id && data == other.data; }
+Tile::operator bool() const { return id != RegistryNull; }
+
+World::World() {
+    chunk_size_function = [](PosLodLevel lod) {
+        return (size_t)(max((size_t)CHUNK_SIZE / (size_t)(lod + 1), (size_t)1));
+    };
+}
+
+void RawChunk::Data::set_blocks(const array<Tile, CHUNK_BLOCK_COUNT>& tiles) noexcept { data = tiles; }
+void RawChunk::Data::set_blocks(array<Tile, CHUNK_BLOCK_COUNT>&& tiles) noexcept { data = std::move(tiles); }
+size_t RawChunk::Data::index(size_t x, size_t y, size_t z) noexcept {
+    return x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+}
+Tile RawChunk::Data::get(size_t x, size_t y, size_t z) const noexcept {
+    return x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE ? TileNull : data[index(x, y, z)];
+}
+void RawChunk::Data::set(size_t x, size_t y, size_t z, const Tile& tile) noexcept {
+    if (x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE) data[index(x, y, z)] = tile;
+}
+
+RawChunk::RawChunk(unique_ptr<Data> raw_chunk, Tile tile) : array_chunk(std::move(raw_chunk)), single_tile(tile) {}
+void RawChunk::set_blocks(const array<Tile, CHUNK_BLOCK_COUNT>& tiles) noexcept {
+    array_chunk = make_unique<Data>();
+    array_chunk->data = tiles;
+    try_compress();
+}
+void RawChunk::set_blocks(array<Tile, CHUNK_BLOCK_COUNT>&& tiles) noexcept {
+    array_chunk = make_unique<Data>();
+    array_chunk->data = std::move(tiles);
+    try_compress();
+}
+void RawChunk::fill_with(Tile tile) noexcept { single_tile = tile, array_chunk = nullptr; }
+size_t RawChunk::index(size_t x, size_t y, size_t z) noexcept { return Data::index(x, y, z); }
+Tile RawChunk::get(size_t x, size_t y, size_t z) const noexcept {
+    if (x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE) return TileNull;
+    return array_chunk ? array_chunk->data[index(x, y, z)] : single_tile;
+}
+void RawChunk::set(size_t x, size_t y, size_t z, const Tile& tile) noexcept {
+    if (x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE || (!array_chunk && tile == single_tile)) return;
+    if (!array_chunk) {
+        array_chunk = make_unique<Data>();
+        array_chunk->data.fill(single_tile);
+    }
+    array_chunk->data[index(x, y, z)] = tile;
+}
+void RawChunk::try_compress() {
+    if (!array_chunk) return;
+    const Tile first = array_chunk->data[0];
+    for (uint i = 1; i < CHUNK_BLOCK_COUNT; ++i)
+        if (array_chunk->data[i] != first) return;
+    single_tile = first;
+    array_chunk = nullptr;
+}
+bool RawChunk::is_single_block() noexcept {
+    try_compress();
+    return !array_chunk;
+}
+
+Chunk& Chunk::operator=(RawChunk&& other) noexcept {
+    RawChunk::operator=(std::move(other));
+    return *this;
+}
+
+Level::Level(Level&& other) {
+    unique_lock lock(other.mutex);
+    chunks = std::move(other.chunks);
+}
+Level& Level::operator=(Level&& other) {
+    if (this != &other) {
+        scoped_lock lock(mutex, other.mutex);
+        chunks = std::move(other.chunks);
+    }
+    return *this;
+}
+Chunk& Level::operator[](const Vec3i& pos, bool lock) {
+    if (!lock) return chunks[pos];
+    shared_lock lockguard(mutex);
+    return chunks[pos];
+}
+const Chunk& Level::operator[](const Vec3i& pos) const { return chunks.at(pos); }
+bool Level::contains(const Vec3i& pos) const { return chunks.contains(pos); }
+bool Level::contains(const Vec3i& pos, bool lock) {
+    if (!lock) return chunks.contains(pos);
+    shared_lock lockguard(mutex);
+    return chunks.contains(pos);
+}
+void Level::erase(const Vec3i& pos, bool lock) {
+    if (!lock) {
+        chunks.erase(pos);
+        return;
+    }
+    unique_lock lockguard(mutex);
+    chunks.erase(pos);
+}
+
+void World::MeshData::ensure_mesh(Vec3i pos, PosLodLevel lod) {
+    lock_guard lock(chunks_to_mesh_mutex);
+    if (chunks_to_mesh.size() <= lod) chunks_to_mesh.resize(lod + 1);
+    chunks_to_mesh[lod].insert(pos);
+}
+void World::MeshData::drop_mesh(Vec3i pos, PosLodLevel lod) {
+    {
+        lock_guard lock(chunks_to_mesh_mutex);
+        if (lod < chunks_to_mesh.size()) chunks_to_mesh[lod].erase(pos);
+    }
+    unique_lock lock(meshes_mutex);
+    if (lod < meshes.size() && meshes[lod].erase(pos) > 0) ++version;
+}
+void World::MeshData::publish_mesh(Vec3i pos, PosLodLevel lod, Mesh mesh) {
+    unique_lock lock(meshes_mutex);
+    if (meshes.size() <= lod) meshes.resize(lod + 1);
+    meshes[lod][pos] = std::move(mesh);
+    ++version;
+}
+
+void World::set_chunk_size_function(function<size_t(PosLodLevel)> function) {
+    if (!function) throw invalid_argument("World chunk size function cannot be empty");
+    unique_lock lock(chunk_size_mutex);
+    chunk_size_function = std::move(function);
+}
+size_t World::chunk_size(PosLodLevel lod) const {
+    shared_lock lock(chunk_size_mutex);
+    return clamp<size_t>(chunk_size_function(lod), 1, size_t{1} << 20);
+}
+double World::chunk_extent(PosLodLevel lod) const { return static_cast<double>(CHUNK_SIZE) * chunk_size(lod); }
+Vec3i World::camchunk(PosLodLevel lod) const {
+    const double scalar = 1.0 / chunk_extent(lod);
+    shared_lock lock(camera_mutex);
+    return {static_cast<int>(floor(camera.x * scalar)), static_cast<int>(floor(camera.y * scalar)),
+        static_cast<int>(floor(camera.z * scalar))};
+}
+
+void World::Module::init() {
+    tassertmsgerr(parent, "When initializing " + vname() + ", `parent` is null", logic_error);
+    world = dynamic_cast<World*>(parent);
+    tassertmsgerr(world, vname() + " must be a module belonging to World, not " + string(typeid(*parent).name()), logic_error);
+}
+
+void World::SnapHandler::init() {
+    World::Module::init();
+    world->snap_back_callback.erase(typeid(*this).hash_code());
+    world->snap_back_callback[typeid(*this).hash_code()] = [this](const glm::vec<3, double>& difference) {
+        on_resize(difference);
+    };
+}
+void World::SnapHandler::quit() { world->snap_back_callback.erase(typeid(*this).hash_code()); }
+
+void ChunkMesher::init() { World::Module::init(); }
+void ChunkMesher::loop() {}
+void ChunkMesher::quit() {}
+
 RawChunk::RawChunk(const RawChunk& other) : single_tile(other.single_tile) {
     if (other.array_chunk) {
         array_chunk = std::make_unique<Data>();
@@ -77,8 +241,7 @@ struct WorldImpl : World {
     }
 
     bool chunk_in_fov(Vec3i pos, PosLodLevel lod, double aspect_ratio = 2.0) const override {
-        const double scale = std::ldexp(1.0, static_cast<int>(lod));
-        const double chunk_size = static_cast<double>(CHUNK_SIZE) * scale;
+        const double chunk_size = chunk_extent(lod);
         // yes if the camera is inside the chunk
         if (camera.x >= pos.x * chunk_size && camera.x <= (pos.x + 1) * chunk_size && camera.y >= pos.y * chunk_size &&
             camera.y <= (pos.y + 1) * chunk_size && camera.z >= pos.z * chunk_size &&
@@ -180,7 +343,7 @@ struct ChunkMeshLoop : World::Module {
                 if (is_in_flight_locked(candidate)) continue;  // leave it queued for later
 
                 const Vec3i camera_chunk = world->camchunk(lod);
-                const double scale = std::ldexp(1.0, static_cast<int>(lod));
+                const double scale = static_cast<double>(world->chunk_size(lod));
                 const double dx = (pos.x - camera_chunk.x) * scale;
                 const double dy = (pos.y - camera_chunk.y) * scale;
                 const double dz = (pos.z - camera_chunk.z) * scale;

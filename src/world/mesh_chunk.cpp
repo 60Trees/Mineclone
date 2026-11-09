@@ -43,9 +43,9 @@ struct ChunkMesherImpl : ChunkMesher {
         const uint16_t u_size = static_cast<uint16_t>(u1 - u0);
         const uint16_t v_size = static_cast<uint16_t>(v1 - v0);
 
-        // At LOD n one mesh "block" spans 2^n real blocks, so the tile repeats 2^n times across it.
-        // Clamped to what a uint8_t can hold (LOD >= 8 all use 255; the pattern is sub-pixel by then anyway).
-        const uint8_t repeat = i.lod >= 8 ? static_cast<uint8_t>(255) : static_cast<uint8_t>(1u << i.lod);
+        // A mesh block spans chunk_size real blocks, clamped to the vertex format's range.
+        const auto chunk_scale = world->chunk_size(i.lod);
+        const uint8_t repeat = chunk_scale >= 255 ? static_cast<uint8_t>(255) : static_cast<uint8_t>(chunk_scale);
 
         const auto air =
             parent->application->get_subapp<RegistryList>().getmod<BlockRegistry>().get_index("minecraft:air");

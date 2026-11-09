@@ -34,19 +34,8 @@ struct Vec3i {
     auto operator<=>(const Vec3i&) const = default;
 
     struct Vec3iHash {
-        static uint64_t mix(uint64_t x) noexcept {
-            x += 0x9e3779b97f4a7c15ULL;
-            x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-            x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-            return x ^ (x >> 31);
-        }
-
-        size_t operator()(const Vec3i& v) const noexcept {
-            uint64_t h = mix(static_cast<uint32_t>(v.x));
-            h = mix(h ^ static_cast<uint32_t>(v.y));
-            h = mix(h ^ static_cast<uint32_t>(v.z));
-            return static_cast<size_t>(h);
-        }
+        static uint64_t mix(uint64_t x) noexcept;
+        size_t operator()(const Vec3i& v) const noexcept;
     };
     // </AI>
 };
@@ -66,8 +55,8 @@ struct Tile {
     RegistryUint id = RegistryNull;
     uint16_t data;
 
-    inline bool operator==(const Tile& other) const { return id == other.id && data == other.data; }
-    inline operator bool() const { return id != RegistryNull; }
+    bool operator==(const Tile& other) const;
+    operator bool() const;
 };
 
 extern Tile TileNull;
@@ -111,25 +100,11 @@ struct RawChunk {
     struct Data {
         std::array<Tile, CHUNK_BLOCK_COUNT> data;
 
-        inline void set_blocks(const std::array<Tile, CHUNK_BLOCK_COUNT>& tiles) noexcept {
-            data = std::array<Tile, CHUNK_BLOCK_COUNT>(tiles);
-        }
-        inline void set_blocks(std::array<Tile, CHUNK_BLOCK_COUNT>&& tiles) noexcept { data = std::move(tiles); }
-
-        static inline size_t index(size_t x, size_t y, size_t z) noexcept {
-            return x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
-        }
-
-        inline Tile get(size_t x, size_t y, size_t z) const noexcept {
-            if (x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE) return TileNull;
-
-            return data[index(x, y, z)];
-        }
-
-        inline void set(size_t x, size_t y, size_t z, const Tile& tile) noexcept {
-            if (x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE) return;
-            data[index(x, y, z)] = tile;
-        }
+        void set_blocks(const std::array<Tile, CHUNK_BLOCK_COUNT>& tiles) noexcept;
+        void set_blocks(std::array<Tile, CHUNK_BLOCK_COUNT>&& tiles) noexcept;
+        static size_t index(size_t x, size_t y, size_t z) noexcept;
+        Tile get(size_t x, size_t y, size_t z) const noexcept;
+        void set(size_t x, size_t y, size_t z, const Tile& tile) noexcept;
     };
 
     std::unique_ptr<Data> array_chunk = nullptr;
@@ -139,8 +114,7 @@ struct RawChunk {
     Tile single_tile = TileNull;
 
     RawChunk() = default;
-    RawChunk(std::unique_ptr<Data> raw_chunk, Tile single_tile)
-        : array_chunk(std::move(raw_chunk)), single_tile(single_tile) {}
+    RawChunk(std::unique_ptr<Data> raw_chunk, Tile single_tile);
 
     // TODO: Implement these constructors in world.cpp
     // When copying the Data, just construct a new Data and copy the array_chunk->data array
@@ -149,66 +123,21 @@ struct RawChunk {
     RawChunk& operator=(RawChunk&& oth);
     RawChunk& operator=(const RawChunk& oth);
 
-    inline void set_blocks(const std::array<Tile, CHUNK_BLOCK_COUNT>& tiles) noexcept {
-        array_chunk = std::make_unique<Data>();
-        array_chunk->data = std::array<Tile, CHUNK_BLOCK_COUNT>(tiles);
-        try_compress();
-    }
-    inline void set_blocks(std::array<Tile, CHUNK_BLOCK_COUNT>&& tiles) noexcept {
-        array_chunk = std::make_unique<Data>();
-        array_chunk->data = std::move(tiles);
-        try_compress();
-    }
-    inline void fill_with(Tile tile) noexcept {
-        single_tile = tile;
-        array_chunk = nullptr;
-    }
-    static inline size_t index(size_t x, size_t y, size_t z) noexcept {
-        return x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
-    }
-    inline Tile get(size_t x, size_t y, size_t z) const noexcept {
-        if (x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE) return TileNull;
-        if (!array_chunk) return single_tile;
-
-        return array_chunk->data[index(x, y, z)];
-    }
-    inline void set(size_t x, size_t y, size_t z, const Tile& tile) noexcept {
-        if (x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE) return;
-        if (!array_chunk && tile == single_tile) return;
-        if (!array_chunk) {
-            array_chunk = std::make_unique<Data>();
-            array_chunk->data.fill(single_tile);
-        }
-
-        array_chunk->data[index(x, y, z)] = tile;
-    }
-    void try_compress() {
-        if (!array_chunk) return;
-
-        const auto& data = array_chunk->data;
-        const Tile first = data[0];
-
-        for (uint i = 1; i < CHUNK_BLOCK_COUNT; ++i) {
-            if (data[i] != first) return;
-        }
-
-        single_tile = first;
-        array_chunk = nullptr;
-    }
-    inline bool is_single_block() noexcept {
-        try_compress();
-        return !array_chunk;
-    }
+    void set_blocks(const std::array<Tile, CHUNK_BLOCK_COUNT>& tiles) noexcept;
+    void set_blocks(std::array<Tile, CHUNK_BLOCK_COUNT>&& tiles) noexcept;
+    void fill_with(Tile tile) noexcept;
+    static size_t index(size_t x, size_t y, size_t z) noexcept;
+    Tile get(size_t x, size_t y, size_t z) const noexcept;
+    void set(size_t x, size_t y, size_t z, const Tile& tile) noexcept;
+    void try_compress();
+    bool is_single_block() noexcept;
 };
 
 struct Chunk : RawChunk {
     /// @note Shared lock = read, unique lock = write
     std::shared_mutex mutex;
 
-    Chunk& operator=(RawChunk&& other) noexcept {
-        RawChunk::operator=(std::move(other));
-        return *this;
-    }
+    Chunk& operator=(RawChunk&& other) noexcept;
 
     /// Written by the loader under `Level::mutex` (unique), read under `Level::mutex` (shared).
     /// `true` means "a mesh for this chunk should be published".
@@ -229,37 +158,13 @@ struct Level {
     Level() = default;
     Level(const Level&) = delete;
     Level& operator=(const Level&) = delete;
-    Level(Level&& other) {
-        std::unique_lock lock(other.mutex);
-        chunks = std::move(other.chunks);
-    }
-    Level& operator=(Level&& other) {
-        if (this == &other) return *this;
-        std::scoped_lock lock(mutex, other.mutex);
-        chunks = std::move(other.chunks);
-        return *this;
-    }
-
-    inline Chunk& operator[](const Vec3i& pos, bool lock = false) {
-        if (!lock) return chunks[pos];
-        std::shared_lock lockguard(mutex);
-        return chunks[pos];
-    }
-    inline const Chunk& operator[](const Vec3i& pos) const { return chunks.at(pos); }
-    inline bool contains(const Vec3i& pos) const { return chunks.contains(pos); }
-    inline bool contains(const Vec3i& pos, bool lock = false) {
-        if (!lock) return chunks.contains(pos);
-        std::shared_lock lockguard(mutex);
-        return chunks.contains(pos);
-    }
-    inline void erase(const Vec3i& pos, bool lock = false) {
-        if (!lock) {
-            chunks.erase(pos);
-            return;
-        }
-        std::unique_lock lockguard(mutex);
-        chunks.erase(pos);
-    }
+    Level(Level&& other);
+    Level& operator=(Level&& other);
+    Chunk& operator[](const Vec3i& pos, bool lock = false);
+    const Chunk& operator[](const Vec3i& pos) const;
+    bool contains(const Vec3i& pos) const;
+    bool contains(const Vec3i& pos, bool lock = false);
+    void erase(const Vec3i& pos, bool lock = false);
 };
 
 /**
@@ -313,22 +218,21 @@ struct BigPos {
  */
 struct World : triolib::SubApp {
     tClass;
+    World();
     /**
      * @brief The chunks in the world, indexed by PosLodLevel.
      *
      * @detail The way these chunks are physically arranged is that
-     * their physical size is `2^index` times the size of a normal chunk
+     * their physical size is `chunk_size(lod)` times the size of a normal chunk
      * AND that the south west bottom corner of the chunk coord `0,0,0` (for all lods)
      * is the world origin (`+x` is east, `+y` is up, `+z` is north)
      *
      * @note
      * The first level (0) is highest detail, with the coords being the plain chunk coordinates.
-     * The second level (1) is half detail, with the coords being the chunk coordinates divided by 2, rounded down to 0.
+     * The second level (1) is half detail by default, with the coords being the chunk coordinates divided by 2, rounded down to 0.
      *
-     * Regarding the the first level (`levels[0]`) as Lvl0 and the second level (`levels[1]`) as Lvl1, the Lvl1 chunk
-     * coord `x,y,z` will cover the Lvl0 chunk coords For example: Lvl1 chunk coord `1,2,3` will cover Lvl0 chunk
-     * cooords `2,4,6` to `3,5,7` (inclusive) and the Lvl1 chunk coord `0,0,0` will cover Lvl0 chunk coords `0,0,0` to
-     * `1,1,1` (inclusive) and the Lvl1 chunk coord `-1,-1,-1` will cover Lvl0 chunk coords `-2,-2,-2` to `-1,-1,-1`
+     * When adjacent LOD sizes have an integral ratio, a parent covers that many child chunks per axis. For example,
+     * with the default ratio of 2, Lvl1 chunk coord `1,2,3` covers Lvl0 chunk coords `2,4,6` to `3,5,7` (inclusive).
      * (inclusive).
      *
      * etc.
@@ -361,28 +265,12 @@ struct World : triolib::SubApp {
         using MeshMap = std::unordered_map<Vec3i, Mesh, Vec3i::Vec3iHash>;
 
         /// Queue (or re-queue) a chunk for meshing.
-        inline void ensure_mesh(Vec3i pos, PosLodLevel lod) {
-            std::lock_guard lock(chunks_to_mesh_mutex);
-            if (chunks_to_mesh.size() <= lod) chunks_to_mesh.resize(lod + 1);
-            chunks_to_mesh[lod].insert(pos);
-        }
+        void ensure_mesh(Vec3i pos, PosLodLevel lod);
 
         /// Forget a chunk completely: pending request AND published mesh.
-        inline void drop_mesh(Vec3i pos, PosLodLevel lod) {
-            {
-                std::lock_guard lock(chunks_to_mesh_mutex);
-                if (lod < chunks_to_mesh.size()) chunks_to_mesh[lod].erase(pos);
-            }
-            std::unique_lock lock(meshes_mutex);
-            if (lod < meshes.size() && meshes[lod].erase(pos) > 0) ++version;
-        }
+        void drop_mesh(Vec3i pos, PosLodLevel lod);
 
-        inline void publish_mesh(Vec3i pos, PosLodLevel lod, Mesh mesh) {
-            std::unique_lock lock(meshes_mutex);
-            if (meshes.size() <= lod) meshes.resize(lod + 1);
-            meshes[lod][pos] = std::move(mesh);
-            ++version;
-        }
+        void publish_mesh(Vec3i pos, PosLodLevel lod, Mesh mesh);
 
         std::vector<std::set<Vec3i>> chunks_to_mesh;
         std::mutex chunks_to_mesh_mutex;
@@ -408,17 +296,17 @@ struct World : triolib::SubApp {
     /// down, offset.y += 1000
     Camera camera;
     Camera render_camera;
-    std::shared_mutex camera_mutex;
+    mutable std::shared_mutex camera_mutex;
 
-    inline Vec3i camchunk(PosLodLevel lod) {
-        const double scalar = 1.0 / static_cast<double>(CHUNK_SIZE) / std::pow(2, lod);
-        std::shared_lock __(camera_mutex);
-        return Vec3i{
-            static_cast<int>(std::floor(camera.x * scalar)),
-            static_cast<int>(std::floor(camera.y * scalar)),
-            static_cast<int>(std::floor(camera.z * scalar)),
-        };
-    }
+    /// Returns how many world blocks are represented by one block in a chunk at this LOD.
+    /// Values are clamped to a practical range so coordinate calculations remain safe.
+    std::function<size_t(PosLodLevel)> chunk_size_function;
+    mutable std::shared_mutex chunk_size_mutex;
+
+    void set_chunk_size_function(std::function<size_t(PosLodLevel)> function);
+    size_t chunk_size(PosLodLevel lod) const;
+    double chunk_extent(PosLodLevel lod) const;
+    Vec3i camchunk(PosLodLevel lod) const;
 
     virtual bool chunk_in_fov(Vec3i pos, PosLodLevel lod, double aspect_ratio = 2.0) const = 0;
 
@@ -426,15 +314,7 @@ struct World : triolib::SubApp {
         tClass;
 
         World* world = nullptr;
-        void init() override {
-            tassertmsgerr(parent, "When initializing " + vname() + ", `parent` is null", logic_error);
-
-            world = dynamic_cast<World*>(parent);
-
-            tassertmsgerr(world,
-                vname() + " must be a module belonging to World, not " + std::string(typeid(*parent).name()),
-                logic_error);
-        }
+        void init() override;
     };
 
     /**
@@ -442,15 +322,8 @@ struct World : triolib::SubApp {
      * every time the center gets snapped backwards.
      */
     struct SnapHandler : World::Module {
-        void init() override {
-            World::Module::init();
-
-            world->snap_back_callback.erase(typeid(*this).hash_code());
-            world->snap_back_callback[typeid(*this).hash_code()] = [this](const glm::vec<3, double>& difference) {
-                this->on_resize(difference);
-            };
-        }
-        void quit() override { world->snap_back_callback.erase(typeid(*this).hash_code()); }
+        void init() override;
+        void quit() override;
         virtual void on_resize(const glm::vec<3, double>& difference) = 0;
     };
 
@@ -466,7 +339,7 @@ struct ChunkMesher : World::Module {
         const RawChunk* up, const RawChunk* north, const RawChunk* south, const RawChunk* west,
         const RawChunk* east) = 0;
 
-    void init() override {}
-    void loop() override {}
-    void quit() override {}
+    void init() override;
+    void loop() override;
+    void quit() override;
 };

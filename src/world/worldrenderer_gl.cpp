@@ -28,6 +28,9 @@ struct WorldRendererGl : BaseRenderer {
 
     opengl::ShaderProgram shader_program;
     opengl::Texture texture;
+    opengl::VBO outline_vbo;
+    opengl::VAO outline_vao;
+    bool show_chunk_outlines = true;
 
     /// Chunk-local vertices, converted and uploaded once per mesh.
     struct GpuMesh {
@@ -88,6 +91,8 @@ struct WorldRendererGl : BaseRenderer {
     GLint fog_color_location = -1;
     GLint fog_start_location = -1;
     GLint fog_end_location = -1;
+    GLint debug_outline_location = -1;
+    GLint debug_color_location = -1;
 
     /// Used for both glClearColor and the fog, so distant terrain fades *into the sky*.
     glm::vec3 sky_color{1.f, 1.f, 1.f};
@@ -150,22 +155,40 @@ struct WorldRendererGl : BaseRenderer {
         };
         const auto children_ready = [&](PosLodLevel lod, const Vec3i& p) {
             if (lod == 0) return false;
+            const size_t child_scale = world->chunk_size(lod - 1);
+            const size_t parent_scale = world->chunk_size(lod);
+            if (parent_scale < child_scale || parent_scale % child_scale != 0) return false;
+            const int child_count = static_cast<int>(parent_scale / child_scale);
+            if (child_count > 8) return false;
             int ready = 0;
-            for (int i = 0; i < 8; i++) 
-                if (has(lod - 1, Vec3i{p.x * 2 + (i & 1), p.y * 2 + ((i >> 1) & 1), p.z * 2 + ((i >> 2) & 1)})) 
-                    ready++;
-                
-            
-            return require_all_children ? ready == 8 : ready == 0;
+            for (int x = 0; x < child_count; x++)
+                for (int y = 0; y < child_count; y++)
+                    for (int z = 0; z < child_count; z++)
+                        if (has(lod - 1, Vec3i{p.x * child_count + x, p.y * child_count + y, p.z * child_count + z}))
+                            ready++;
+
+            const int child_total = child_count * child_count * child_count;
+            return require_all_children ? ready == child_total : ready == 0;
         };
-        const auto parent_of = [](const Vec3i& p) { return Vec3i{p.x >> 1, p.y >> 1, p.z >> 1}; };
+        const auto floor_div = [](int value, int divisor) {
+            const int remainder = value % divisor;
+            return (value - (remainder < 0 ? remainder + divisor : remainder)) / divisor;
+        };
+        const auto parent_of = [&](PosLodLevel lod, const Vec3i& p) {
+            const size_t child_scale = world->chunk_size(lod);
+            const size_t parent_scale = world->chunk_size(lod + 1);
+            if (parent_scale < child_scale) return p;
+            const int parent_count = static_cast<int>(parent_scale / child_scale);
+            if (parent_count > 8) return p;
+            return Vec3i{floor_div(p.x, parent_count), floor_div(p.y, parent_count), floor_div(p.z, parent_count)};
+        };
 
         // claimed(lod, p): the region of (lod, p) is drawn by that chunk or by one of its ancestors.
         std::vector<std::unordered_map<Vec3i, bool, Vec3i::Vec3iHash>> memo(meshes.size());
         const std::function<bool(PosLodLevel, const Vec3i&)> claimed = [&](PosLodLevel lod, const Vec3i& p) -> bool {
             if (lod >= meshes.size()) return false;
             if (const auto it = memo[lod].find(p); it != memo[lod].end()) return it->second;
-            const bool result = (has(lod, p) && !children_ready(lod, p)) || claimed(lod + 1, parent_of(p));
+            const bool result = (has(lod, p) && !children_ready(lod, p)) || claimed(lod + 1, parent_of(lod, p));
             memo[lod].emplace(p, result);
             return result;
         };
@@ -174,7 +197,7 @@ struct WorldRendererGl : BaseRenderer {
             for (const auto& [pos, mesh] : meshes[lod]) {
                 if (!mesh || mesh->empty()) continue;
                 if (children_ready(lod, pos)) continue;          // finer chunks take over
-                if (claimed(lod + 1, parent_of(pos))) continue;  // a coarser chunk still covers this region
+                if (claimed(lod + 1, parent_of(lod, pos))) continue;  // a coarser chunk still covers this region
                 draw_list.push_back({pos, lod, mesh});
             }
     }
@@ -223,6 +246,23 @@ struct WorldRendererGl : BaseRenderer {
         fog_color_location = shader_program.get_uniform_location("fogColor", true);
         fog_start_location = shader_program.get_uniform_location("fogStart", true);
         fog_end_location = shader_program.get_uniform_location("fogEnd", true);
+        debug_outline_location = shader_program.get_uniform_location("debugOutline", true);
+        debug_color_location = shader_program.get_uniform_location("debugColor", true);
+
+        constexpr float edge = static_cast<float>(CHUNK_SIZE * CHUNK_SIZE);
+        constexpr std::array<float, 72> outline_vertices{
+            0, 0, 0, edge, 0, 0, edge, 0, 0, edge, edge, 0, edge, edge, 0, 0, edge, 0,
+            0, 0, edge, edge, 0, edge, edge, edge, edge, 0, edge, edge, 0, 0, 0, 0, 0, edge,
+            edge, 0, 0, edge, 0, edge, 0, 0, edge, 0, edge, edge, edge, 0, edge, edge, edge, edge,
+            edge, edge, 0, edge, edge, edge, 0, edge, edge, 0, edge, 0, edge, edge, 0, edge, edge, edge,
+        };
+        outline_vao.create();
+        outline_vao.bind();
+        outline_vbo.create();
+        outline_vbo.bind();
+        outline_vbo.data(std::span<const float>(outline_vertices), GL_STATIC_DRAW);
+        outline_vao.vertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), 0);
+        outline_vao.enableAttribute(0);
     }
 
     struct Timestamp {
@@ -318,7 +358,7 @@ struct WorldRendererGl : BaseRenderer {
         // (Independent of what is on screen, so it doesn't pump when you turn around.)
         double farthest = 0.0;
         for (const auto& item : draw_list) {
-            const double extent = static_cast<double>(CHUNK_SIZE) * std::ldexp(1.0, static_cast<int>(item.lod));
+            const double extent = world->chunk_extent(item.lod);
             const double dx = (item.pos.x + 0.5) * extent - camera.x;
             const double dy = (item.pos.y + 0.5) * extent - camera.y;
             const double dz = (item.pos.z + 0.5) * extent - camera.z;
@@ -334,13 +374,14 @@ struct WorldRendererGl : BaseRenderer {
         glUniform3f(fog_color_location, sky_color.r, sky_color.g, sky_color.b);
         glUniform1f(fog_start_location, fog_start);
         glUniform1f(fog_end_location, fog_end);
+        glUniform1i(debug_outline_location, GL_FALSE);
 
         size_t triangle_count = 0;
         times["draw calls"] = {};
         for (const auto& item : draw_list) {
             if (!world->chunk_in_fov(item.pos, item.lod, aspect)) continue;
 
-            const double scale = std::ldexp(1.0, static_cast<int>(item.lod));
+            const double scale = static_cast<double>(world->chunk_size(item.lod));
             const double extent = static_cast<double>(CHUNK_SIZE) * scale;
             // Camera-relative origin computed in double, then narrowed, so precision stays good far from 0,0,0.
             glUniform3f(chunk_offset_location, static_cast<float>(item.pos.x * extent - camera.x),
@@ -355,6 +396,41 @@ struct WorldRendererGl : BaseRenderer {
             ++chunk_count;
         }
         times["draw calls"].stop();
+
+        if (show_chunk_outlines) {
+            glUniform1i(debug_outline_location, GL_TRUE);
+            glLineWidth(1.0f);
+            outline_vao.bind();
+
+            std::shared_lock mesh_lock(world->mesh_data.meshes_mutex);
+            // Draw coarse outlines first and fine outlines last so higher-detail colors win on shared edges.
+            glDepthFunc(GL_GEQUAL);
+            constexpr std::array<glm::vec4, 7> outline_colors{{
+                {1.0f, 0.0f, 0.0f, 1.0f},  // red
+                {1.0f, 0.5f, 0.0f, 1.0f},  // orange
+                {1.0f, 1.0f, 0.0f, 1.0f},  // yellow
+                {0.0f, 1.0f, 0.0f, 1.0f},  // green
+                {0.0f, 0.0f, 1.0f, 1.0f},  // blue
+                {0.29f, 0.0f, 0.51f, 1.0f}, // indigo
+                {1.0f, 0.08f, 0.55f, 1.0f}, // pink
+            }};
+            for (size_t lod_index = world->mesh_data.meshes.size(); lod_index-- > 0;) {
+                const PosLodLevel lod = static_cast<PosLodLevel>(lod_index);
+                const double scale = static_cast<double>(world->chunk_size(lod));
+                const double extent = static_cast<double>(CHUNK_SIZE) * scale;
+                const glm::vec4& color = outline_colors[lod % outline_colors.size()];
+                glUniform4fv(debug_color_location, 1, &color[0]);
+                glUniform1f(chunk_scale_location, static_cast<float>(scale / static_cast<double>(CHUNK_SIZE)));
+                for (const auto& [pos, mesh] : world->mesh_data.meshes[lod]) {
+                    if (!mesh) continue;
+                    glUniform3f(chunk_offset_location, static_cast<float>(pos.x * extent - camera.x),
+                        static_cast<float>(pos.y * extent - camera.y), static_cast<float>(pos.z * extent - camera.z));
+                    glDrawArrays(GL_LINES, 0, 24);
+                }
+            }
+            glDepthFunc(GL_GREATER);
+            glUniform1i(debug_outline_location, GL_FALSE);
+        }
 
         // TODO: (Chore) Move `fbo` to the src/opengl.hpp and make it a proper class with destructors
         glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);

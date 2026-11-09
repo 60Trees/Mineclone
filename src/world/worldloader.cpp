@@ -41,10 +41,29 @@ struct WorldLoaderImpl : WorldLoader {
             std::shared_lock level_guard(lvl.mutex);
 
             Vec3i cam_chunk = w.camchunk(lod);
-            const int lod_radius = get_chunk_radius(lod);
+            const int lod_radius = static_cast<int>(get_chunk_radius(lod));
 
             const auto queue_work =
                 [&](Vec3i pos, WorldLoader::WorkMode mode) -> std::optional<std::pair<Vec3i, WorldLoader::WorkMode>> {
+                if (mode == WorldLoader::Render && lod + 1 < w.levels.size()) {
+                    const size_t child_scale = w.chunk_size(lod);
+                    const size_t parent_scale = w.chunk_size(lod + 1);
+                    if (parent_scale < child_scale || parent_scale % child_scale != 0) return std::nullopt;
+                    const int child_count = static_cast<int>(parent_scale / child_scale);
+                    if (child_count > 8) return std::nullopt;
+
+                    const auto floor_div = [](int value, int divisor) {
+                        const int remainder = value % divisor;
+                        return (value - (remainder < 0 ? remainder + divisor : remainder)) / divisor;
+                    };
+                    const Vec3i parent_pos{
+                        floor_div(pos.x, child_count), floor_div(pos.y, child_count), floor_div(pos.z, child_count)};
+                    std::shared_lock parent_level_guard(w.levels[lod + 1].mutex);
+                    const auto parent = w.levels[lod + 1].chunks.find(parent_pos);
+                    if (parent == w.levels[lod + 1].chunks.end() || !parent->second.rendered)
+                        return std::nullopt;
+                }
+
                 switch (mode) {
                     case WorldLoader::Load:
                         if (lvl.chunks.contains(pos)) return std::nullopt;
@@ -84,18 +103,8 @@ struct WorldLoaderImpl : WorldLoader {
 
             for (int x = -lod_radius; x <= lod_radius; x++)
                 for (int y = -lod_radius; y <= lod_radius; y++)
-                    for (int z = -lod_radius; z <= lod_radius; z++) {
-                        const Vec3i pos{cam_chunk.x + x, cam_chunk.y + y, cam_chunk.z + z};
-                        const Vec3i origin{pos.x & ~1, pos.y & ~1, pos.z & ~1};
-                        if (!world->chunk_in_fov({pos.x, pos.y, pos.z}, lod)) {
-                            lazy_chunks.insert(pos);
-                            continue;
-                        }
-                        for (int dx = 0; dx < 2; dx++)
-                            for (int dy = 0; dy < 2; dy++)
-                                for (int dz = 0; dz < 2; dz++)
-                                    add_primary({origin.x + dx, origin.y + dy, origin.z + dz});
-                    }
+                    for (int z = -lod_radius; z <= lod_radius; z++)
+                        add_primary({cam_chunk.x + x, cam_chunk.y + y, cam_chunk.z + z});
 
             const auto distance_sq = [&](const Vec3i& p) {
                 const long long dx = p.x - cam_chunk.x, dy = p.y - cam_chunk.y, dz = p.z - cam_chunk.z;
@@ -145,13 +154,9 @@ struct WorldLoaderImpl : WorldLoader {
             in_progress_chunks[lod].erase(pos);
         };
         lod_priority = [](PosLodLevel lod) {
-            return std::max(8u / (lod + 1), 1u);
+            return lod + 3;
         };
-        get_chunk_radius = [](PosLodLevel lod) {
-            return 4;
-            // static std::vector<uint> radii{6, 5, 4, 3, 2, 1};
-            // return lod < radii.size() ? radii[lod] : 1;
-        };
+        get_chunk_radius = [](PosLodLevel) { return 3u; };
     }
 
     // @brief Resizes the LOD arrays used by the shared loader work item.

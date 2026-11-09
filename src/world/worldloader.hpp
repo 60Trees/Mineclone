@@ -42,8 +42,7 @@ struct WorldLoader : World::Module {
     std::function<void(Vec3i, PosLodLevel)> finish_work;
     /// @brief Non-negative lottery tickets used to choose the next LOD job.
     std::function<uint(PosLodLevel)> lod_priority = [](PosLodLevel) { return 1; };
-
-    std::function<uint(PosLodLevel)> get_chunk_radius = [](PosLodLevel) { return 3; };
+    std::function<uint(PosLodLevel)> get_chunk_radius = [](PosLodLevel) { return 2; };
 
     WorldGen* generator = nullptr;
 };

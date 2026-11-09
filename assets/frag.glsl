@@ -14,6 +14,8 @@ uniform vec2 atlasSize;
 uniform vec3 fogColor;   // same as the clear color, so distant terrain fades into the sky
 uniform float fogStart;  // no fog at/below this distance
 uniform float fogEnd;    // 100% fog at/after this distance (= farthest loaded mesh)
+uniform bool debugOutline;
+uniform vec4 debugColor;
 
 // Shape of the ramp between start and end (0..1 -> 0..1).
 //   1.0 = linear in log-distance
@@ -54,6 +56,11 @@ float computeFog(float dist) {
 }
 
 void main() {
+    if (debugOutline) {
+        FragColor = debugColor;
+        return;
+    }
+
     vec2 local = fract(TileUV);
     vec2 px = TileRect.xy + local * TileRect.zw;
     px = clamp(px, TileRect.xy + 0.01, TileRect.xy + TileRect.zw - 0.01);

@@ -50,7 +50,7 @@ struct WorldGenImpl : WorldGen {
         Tile air{block_registry.get_index("minecraft:air"), 0};
 
         // Index.lod has 0=full detail, 1=half detail, 2=quarter detail, 3 = eighth detail, etc
-        uint scalar = std::pow(2, index.lod);
+        const uint scalar = static_cast<uint>(world->chunk_size(index.lod));
 
         for (int x = 0; x < CHUNK_SIZE; x++)
             for (int z = 0; z < CHUNK_SIZE; z++) {
