@@ -2,7 +2,7 @@
 #include <world/entities/entity.hpp>
 #include <base/fps_handler.hpp>
 #include <base/controls.hpp>
-#include <world/world.hpp>
+#include <world/server/worldgen/main.hpp>
 #include "triolib.hpp"
 #include "world/worldgen.hpp"
 
@@ -90,8 +90,8 @@ struct Player : Entity {
     Player(const nlohmann::json& data, Application& app) : Entity(data, app) { controls.tick_func = update_controls; }
 
     void spawn(triolib::Application& app) override {
-        auto& w = app.get_subapp<World>();
-        pos.y = (double)(w.getmod<WorldGen>().get_approx_height_at(0, 0) - w.offset.y);
+        auto& w = app.get_subapp<WorldServer>();
+        pos.y = (double)(w.getmod<WorldGen>().get_height_at(0, 0) - w.offset.y);
     }
 
     double camera_priority(Application&) const override { return 1.0; }
@@ -101,4 +101,4 @@ struct PlayerSpawner : triolib::Module {
     void init() override { parent->getmod<EntityList>().spawn_entity("minecraft:player", "p.MainPlayer"); }
     void loop() override {}
     void quit() override {}
-} REGISTER_MOD(PlayerSpawner, World);
+} REGISTER_MOD(PlayerSpawner, WorldServer);

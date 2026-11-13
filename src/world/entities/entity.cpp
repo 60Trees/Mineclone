@@ -1,7 +1,7 @@
 #include "entity.hpp"
 #include <string_view>
 #include <triolib.hpp>
-#include <world/world.hpp>
+#include <world/server/main.hpp>
 #include <random>
 #include <base/controls.hpp>
 
@@ -331,7 +331,7 @@ struct EntityListImpl : EntityList {
         entity->spawn(*parent->application);
         loaded_entities[index] = std::move(entity);
     }
-} REGISTER_MOD(EntityListImpl, World);
+} REGISTER_MOD(EntityListImpl, WorldServer);
 
 struct EntityRegistryImpl : EntityRegistry {
     registryClass("minecraft:entity");
