@@ -29,4 +29,4 @@ struct TestServerImpl : WorldServer {
             {*default_chunk_size / 8, 8}};
         triolib::SubApp::init();
     }
-};
+} REGISTER_SUBAPP(TestServerImpl);

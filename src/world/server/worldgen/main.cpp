@@ -7,3 +7,54 @@
  * the world, and other worldgen related things.
  */
 #include "main.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <utils/noise.hpp>
+
+namespace {
+    constexpr RegistryUint air = 0;
+    constexpr RegistryUint stone = 1;
+}
+
+struct WorldGenImpl : WorldGen {
+    tImplClass(WorldGen);
+
+    noise::Perlin noise;
+
+    void init() override {}
+    void loop() override {}
+    void quit() override {}
+
+    BigInt get_height_at(const BigInt& x, const BigInt& z) override {
+        const auto xd = x.convert_to<double>();
+        const auto zd = z.convert_to<double>();
+        if (x == 0 || z == 0) return 0;
+
+        const auto terrain_noise = noise.noise(xd / 96.0, 0.0, zd / 96.0);
+        const auto height = std::floor(32.0 + terrain_noise * 12.0);
+        return BigInt(std::clamp(height, 1.0, 64.0));
+    }
+
+    Chunk generate_chunk(ChunkIndex& index) override {
+        const auto width = static_cast<int>(*default_chunk_size);
+        const auto scalar = BigInt(1u << index.lod);
+        Chunk result(*default_chunk_size);
+
+        for (int x = 0; x < width; ++x)
+            for (int z = 0; z < width; ++z) {
+                const BigInt world_x = BigInt(index.pos.x) * width * scalar + x * scalar;
+                const BigInt world_z = BigInt(index.pos.z) * width * scalar + z * scalar;
+                const BigInt height = get_height_at(world_x, world_z);
+
+                for (int y = 0; y < width; ++y) {
+                    const BigInt world_y = BigInt(index.pos.y) * width * scalar + y * scalar;
+                    result.at(x, y, z) = world_y < height ? Tile{stone, 0} : Tile{air, 0};
+                }
+            }
+
+        return result;
+    }
+};
+
+REGISTER_MOD(WorldGenImpl, WorldServer);

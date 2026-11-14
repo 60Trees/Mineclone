@@ -4,7 +4,7 @@
 #include <base/controls.hpp>
 #include <world/server/worldgen/main.hpp>
 #include "triolib.hpp"
-#include "world/worldgen.hpp"
+#include <world/server/worldgen/main.hpp>
 
 using namespace std;
 using namespace triolib;
@@ -91,7 +91,10 @@ struct Player : Entity {
 
     void spawn(triolib::Application& app) override {
         auto& w = app.get_subapp<WorldServer>();
-        pos.y = (double)(w.getmod<WorldGen>().get_height_at(0, 0) - w.offset.y);
+        w.bubble.owner = index;
+        pos.x = 1.0;
+        pos.z = 1.0;
+        pos.y = w.getmod<WorldGen>().get_height_at(1, 1).convert_to<double>() + 2.0;
     }
 
     double camera_priority(Application&) const override { return 1.0; }

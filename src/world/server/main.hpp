@@ -9,7 +9,15 @@
 
 #pragma once
 
+#include <mutex>
+#include <string>
+#include <utils/position.hpp>
 #include <world/shared.hpp>
+
+struct Bubble {
+    BigPos origin;
+    std::string owner;
+};
 
 struct WorldServer : triolib::SubApp {
     tClass;
@@ -20,4 +28,8 @@ struct WorldServer : triolib::SubApp {
     virtual std::shared_ptr<Chunk> request_chunk(ChunkIndex index) = 0;
 
     std::vector<LodDescriptor> lod_descriptors;
+    Camera render_camera;
+    Camera camera;
+    std::mutex camera_mutex;
+    Bubble bubble;
 };

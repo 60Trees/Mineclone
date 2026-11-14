@@ -3,8 +3,7 @@
 #include <triolib.hpp>
 
 #include <SDL3/SDL.h>
-#include <include/position.hpp>
-#include <world/world.hpp>
+#include <glm/glm.hpp>
 
 struct BaseRendererModule;
 struct BaseRenderer;

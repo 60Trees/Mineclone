@@ -16,8 +16,7 @@
 struct BlockVertex {
     uint16_t x, y, z;
     uint16_t lighting;
-    uint16_t u, v, u_size, v_size;
-    uint8_t repeat_u, repeat_v;
+    float u, v;
     int8_t normal_yaw, normal_pitch, normal_roll;
 };
 
@@ -36,6 +35,7 @@ struct WorldMeshHandler : WorldClient::ThreadedModule {
     /// @brief Shared lock = rendering, unique lock = add chunk mesh
     std::shared_mutex chunk_meshes_mutex;
     std::map<ChunkIndex, ChunkMesh> chunk_meshes;
+    std::mutex meshing_mutex;
 };
 
 /// @brief A module that holds the meshing function

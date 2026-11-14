@@ -27,15 +27,20 @@ struct WorldMeshHandlerImpl : WorldMeshHandler {
     }
 
     bool tick_thread() override {
+        unique_lock meshing_lock(meshing_mutex, try_to_lock);
+        if (!meshing_lock.owns_lock()) return false;
         shared_lock __(client->chunks_mutex);
         auto work = get_work();
         if (!work) return false;
+        if (!client->chunks.contains(*work) || !client->chunks.at(*work)) return false;
 
         vector<shared_lock<shared_mutex>> locks;
         locks.reserve(7);
         locks.emplace_back(shared_lock(client->chunks.at(*work)->mutex));
         for (const auto offset : neighbor_offsets) {
-            locks.emplace_back(shared_lock(client->chunks.at(ChunkIndex{work->pos + offset, work->lod})->mutex));
+            const auto neighbor = ChunkIndex{work->pos + offset, work->lod};
+            if (!client->chunks.contains(neighbor) || !client->chunks.at(neighbor)) return false;
+            locks.emplace_back(shared_lock(client->chunks.at(neighbor)->mutex));
         }
 
         mesh_chunk(*work);
@@ -100,6 +105,7 @@ struct WorldMeshHandlerImpl : WorldMeshHandler {
                 to_remove.insert(*it);
             } else if (status == CAN_MESH) {
                 retval = *it;
+                chunks_to_mesh.erase(it);
                 break;
             }
         }
