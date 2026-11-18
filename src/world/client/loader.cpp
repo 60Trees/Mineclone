@@ -19,7 +19,7 @@
 using namespace std;
 
 /// The radius of each lod distance.
-extern size_t (*default_get_view_distance)(LodLevel lod);
+extern Pair<size_t> (*default_get_view_distance)(LodLevel lod);
 /// The priority of each lod level, used for determining which lod is more important
 /// (e.g 0 lod is closest to the player = most important). Ran in a sequential manner,
 /// lod incrementing until the priority is <= 0.0
@@ -31,7 +31,7 @@ struct WorldLoader : WorldClient::ThreadedModule {
     tClass;
     utils::weighted_set<LodLevel> lod_priorities;
     double (*get_lod_priority)(LodLevel lod) = default_get_lod_priority;
-    size_t (*get_view_distance)(LodLevel lod) = default_get_view_distance;
+    Pair<size_t> (*get_view_distance)(LodLevel lod) = default_get_view_distance;
     shared_mutex loader_options_mutex;
     mutex loading_mutex;
 
@@ -91,13 +91,18 @@ struct WorldLoader : WorldClient::ThreadedModule {
         };
         if (nearest(primary_chunks, true)) return true;
         if (nearest(secondary_chunks, false)) return true;
+        return try_unload_chunk(lod, primary_chunks, secondary_chunks);
+    }
 
+    bool try_unload_chunk(LodLevel lod, const set<ChunkPos>& primary_chunks, const set<ChunkPos>& secondary_chunks) {
         optional<ChunkPos> cleanup_pos = [&] -> optional<ChunkPos> {
             shared_lock __(client->chunks_mutex);
+
             for (const auto& [key, chunk] : client->chunks) {
                 if (key.lod != lod) continue;
                 if (!primary_chunks.contains(key.pos) && !secondary_chunks.contains(key.pos)) return key.pos;
             }
+
             return nullopt;
         }();
 
@@ -111,26 +116,26 @@ struct WorldLoader : WorldClient::ThreadedModule {
         return false;
     }
 
-    bool try_unload_chunk(LodLevel lod, const set<ChunkPos>& primary_chunks, const set<ChunkPos>& secondary_chunks) {
-        return true;
-    }
-
     bool try_lod(LodLevel lod) {
         ChunkPos campos = client->get_camera_pos(lod);
-        size_t radius = get_view_distance(lod);
+        Pair<size_t> radius = get_view_distance(lod);
 
         // Visible chunks
         set<ChunkPos> primary_chunks{};
         // Invisible chunks needed to mesh the visible ones
         set<ChunkPos> secondary_chunks{};
 
-        // Keep the vertical range bounded; view distance is primarily horizontal.
-        for (uint r = 0; r <= radius; r++)
-            for (int x = -r; x <= r; x++)
-                for (int z = -r; z <= r; z++) {
-                    if (abs(x) != r && abs(z) != r) continue;
-                    for (int y = -1; y <= 1; y++) {
+        // Loop in a spiral pattern, closest first
 
+        for (int r = 0; r <= std::max(radius.x, radius.y); r++)
+            for (int x = -r; x <= r; x++) {
+                for (int z = -r; z <= r; z++) {
+                    for (int y = -r; y <= r; y++) {
+                        // Only process the current shell.
+                        if (std::max({std::abs(x), std::abs(z), std::abs(y)}) != r) continue;
+
+                        // Apply horizontal and vertical limits.
+                        if (std::abs(x) > radius.x || std::abs(z) > radius.x || std::abs(y) > radius.y) continue;
                         ChunkIndex index{{campos.x + x, campos.y + y, campos.z + z}, lod};
                         primary_chunks.insert(index.pos);
 
@@ -142,6 +147,7 @@ struct WorldLoader : WorldClient::ThreadedModule {
                         }
                     }
                 }
+            }
 
         for (auto& index : primary_chunks) {
             constexpr static array<ChunkPos, 6> neighbor_offsets = {

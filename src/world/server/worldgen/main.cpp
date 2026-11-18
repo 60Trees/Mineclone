@@ -9,13 +9,15 @@
 #include "main.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <mutex>
 #include <utils/noise.hpp>
 
 namespace {
     constexpr RegistryUint air = 0;
     constexpr RegistryUint stone = 1;
-}
+}  // namespace
 
 struct WorldGenImpl : WorldGen {
     tImplClass(WorldGen);
@@ -31,12 +33,17 @@ struct WorldGenImpl : WorldGen {
         const auto zd = z.convert_to<double>();
         if (x == 0 || z == 0) return 0;
 
-        const auto terrain_noise = noise.noise(xd / 96.0, 0.0, zd / 96.0);
+        const auto terrain_noise = noise.noise(xd / 16.0, 0.0, zd / 16.0);
         const auto height = std::floor(32.0 + terrain_noise * 12.0);
         return BigInt(std::clamp(height, 1.0, 64.0));
     }
 
+    std::mutex speed_mutex;
+    unsigned long long average_over_second;
+    size_t average_amount = 0;
+
     Chunk generate_chunk(ChunkIndex& index) override {
+        auto start = std::chrono::high_resolution_clock::now();
         const auto width = static_cast<int>(*default_chunk_size);
         const auto scalar = BigInt(1u << index.lod);
         Chunk result(*default_chunk_size);
@@ -52,6 +59,30 @@ struct WorldGenImpl : WorldGen {
                     result.at(x, y, z) = world_y < height ? Tile{stone, 0} : Tile{air, 0};
                 }
             }
+
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+        std::lock_guard __(speed_mutex);
+
+        average_over_second += duration;
+        average_amount++;
+
+        run_limited(1) {
+            if (average_over_second == 0) {
+                average_amount = 0;
+                return result;
+            }
+
+            double chunks_per_second = (1'000'000.0 * average_amount) / average_over_second;
+
+            console.debug << "Worldgen average speed (chunks per second):\n"
+                          << chunks_per_second << "\ntrials=" << average_amount;
+
+            average_over_second = 0;
+            average_amount = 0;
+        }
 
         return result;
     }
