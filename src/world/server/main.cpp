@@ -25,8 +25,12 @@ struct TestServerImpl : WorldServer {
     }
 
     void init() override {
-        lod_descriptors = {{*default_chunk_size, 1}, {*default_chunk_size / 2, 2}, {*default_chunk_size / 4, 4},
-            {*default_chunk_size / 8, 8}};
+        // All LODs keep the same number of tiles per chunk; `scale` grows the chunk in
+        // world units. LOD 1 therefore covers 2x2x2 = 8 LOD 0 chunks, LOD 2 covers 8
+        // LOD 1 chunks, etc.
+        lod_descriptors = {{*default_chunk_size, 1}, {*default_chunk_size, 2}, {*default_chunk_size, 4},
+            {*default_chunk_size, 8}};
+        tassertmsg(is_valid(lod_descriptors), "Invalid LOD descriptor list");
         triolib::SubApp::init();
     }
 } REGISTER_SUBAPP(TestServerImpl);

@@ -39,49 +39,44 @@ struct WorldGenImpl : WorldGen {
     }
 
     std::mutex speed_mutex;
-    unsigned long long average_over_second;
-    size_t average_amount = 0;
+    std::chrono::steady_clock::time_point speed_window_start = std::chrono::steady_clock::now();
+    size_t completed_in_window = 0;
 
     Chunk generate_chunk(ChunkIndex& index) override {
-        auto start = std::chrono::high_resolution_clock::now();
-        const auto width = static_cast<int>(*default_chunk_size);
-        const auto scalar = BigInt(1u << index.lod);
+        const int width = static_cast<int>(*default_chunk_size);
+        const long long scalar = 1ll << index.lod;
+        const long long chunk_base_x = static_cast<long long>(index.pos.x) * width * scalar;
+        const long long chunk_base_y = static_cast<long long>(index.pos.y) * width * scalar;
+        const long long chunk_base_z = static_cast<long long>(index.pos.z) * width * scalar;
         Chunk result(*default_chunk_size);
 
         for (int x = 0; x < width; ++x)
             for (int z = 0; z < width; ++z) {
-                const BigInt world_x = BigInt(index.pos.x) * width * scalar + x * scalar;
-                const BigInt world_z = BigInt(index.pos.z) * width * scalar + z * scalar;
-                const BigInt height = get_height_at(world_x, world_z);
+                // Only the column's height needs big-integer math; the inner y loop is
+                // plain integer comparison.
+                const BigInt world_x = chunk_base_x + static_cast<long long>(x) * scalar;
+                const BigInt world_z = chunk_base_z + static_cast<long long>(z) * scalar;
+                const long long height = get_height_at(world_x, world_z).convert_to<long long>();
 
                 for (int y = 0; y < width; ++y) {
-                    const BigInt world_y = BigInt(index.pos.y) * width * scalar + y * scalar;
+                    const long long world_y = chunk_base_y + static_cast<long long>(y) * scalar;
                     result.at(x, y, z) = world_y < height ? Tile{stone, 0} : Tile{air, 0};
                 }
             }
 
-        auto end = std::chrono::high_resolution_clock::now();
+        {
+            std::lock_guard lock(speed_mutex);
+            completed_in_window++;
 
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-
-        std::lock_guard __(speed_mutex);
-
-        average_over_second += duration;
-        average_amount++;
-
-        run_limited(1) {
-            if (average_over_second == 0) {
-                average_amount = 0;
-                return result;
+            const auto now = std::chrono::steady_clock::now();
+            const auto elapsed = std::chrono::duration<double>(now - speed_window_start).count();
+            if (elapsed >= 1.0) {
+                console.debug << "Worldgen throughput (chunks per second):\n"
+                              << static_cast<double>(completed_in_window) / elapsed
+                              << "\ntrials=" << completed_in_window;
+                completed_in_window = 0;
+                speed_window_start = now;
             }
-
-            double chunks_per_second = (1'000'000.0 * average_amount) / average_over_second;
-
-            console.debug << "Worldgen average speed (chunks per second):\n"
-                          << chunks_per_second << "\ntrials=" << average_amount;
-
-            average_over_second = 0;
-            average_amount = 0;
         }
 
         return result;

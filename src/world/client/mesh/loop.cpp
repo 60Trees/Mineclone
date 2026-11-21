@@ -21,6 +21,8 @@ using namespace std;
 struct WorldMeshHandlerImpl : WorldMeshHandler {
     tImplClass(WorldMeshHandler);
     WorldMesher* mesher = nullptr;
+    uint64_t mesh_revision = 0;
+
     void init() override {
         WorldClient::ThreadedModule::init();
         mesher = &parent->getmod<WorldMesher>();
@@ -29,21 +31,39 @@ struct WorldMeshHandlerImpl : WorldMeshHandler {
     bool tick_thread() override {
         unique_lock meshing_lock(meshing_mutex, try_to_lock);
         if (!meshing_lock.owns_lock()) return false;
-        shared_lock __(client->chunks_mutex);
-        auto work = get_work();
-        if (!work) return false;
-        if (!client->chunks.contains(*work) || !client->chunks.at(*work)) return false;
 
-        vector<shared_lock<shared_mutex>> locks;
-        locks.reserve(7);
-        locks.emplace_back(shared_lock(client->chunks.at(*work)->mutex));
-        for (const auto offset : neighbor_offsets) {
-            const auto neighbor = ChunkIndex{work->pos + offset, work->lod};
-            if (!client->chunks.contains(neighbor) || !client->chunks.at(neighbor)) return false;
-            locks.emplace_back(shared_lock(client->chunks.at(neighbor)->mutex));
+        // Grab everything we need while holding the chunk map lock, then release it so
+        // the loader is not blocked for the whole meshing operation. The shared_ptrs
+        // keep the chunks alive.
+        optional<ChunkIndex> work;
+        shared_ptr<Chunk> own_chunk;
+        array<shared_ptr<Chunk>, 6> neighbors;
+        {
+            shared_lock lock(client->chunks_mutex);
+            work = get_work();
+            if (!work) return false;
+
+            const auto it = client->chunks.find(*work);
+            if (it == client->chunks.end() || !it->second) return false;
+            own_chunk = it->second;
+
+            size_t i = 0;
+            for (const auto offset : neighbor_offsets) {
+                const auto neighbor = client->chunks.find(ChunkIndex{work->pos + offset, work->lod});
+                if (neighbor != client->chunks.end() && neighbor->second) neighbors[i] = neighbor->second;
+                i++;
+            }
         }
 
-        mesh_chunk(*work);
+        // Lock the chunks we are reading. Missing neighbours are allowed: they are
+        // treated as empty space, and this chunk is re-queued when the neighbour appears.
+        vector<shared_lock<shared_mutex>> locks;
+        locks.reserve(7);
+        locks.emplace_back(own_chunk->mutex);
+        for (const auto& neighbor : neighbors)
+            if (neighbor) locks.emplace_back(neighbor->mutex);
+
+        mesh_chunk(*work, own_chunk, neighbors);
 
         return true;
     }
@@ -57,59 +77,30 @@ struct WorldMeshHandlerImpl : WorldMeshHandler {
         ChunkPos{-1, 0, 0},  // west
     };
 
-    // Collects the chunk and its neighbors and meshes it, putting the result in \ref chunk_meshes
-    //
+    // Meshes the chunk and puts the result in \ref chunk_meshes.
     // locks: chunk_meshes_mutex (unique)
-    void mesh_chunk(ChunkIndex work) {
-        if (!client->chunks.contains(work)) return;
+    void mesh_chunk(
+        ChunkIndex work, const shared_ptr<Chunk>& own_chunk, const array<shared_ptr<Chunk>, 6>& neighbors) {
+        ChunkMesh result = mesher->mesh_chunk(work, own_chunk, neighbors);
 
-        array<shared_ptr<Chunk>, 6> neighbors;
-        shared_ptr<Chunk> own_chunk = make_shared<Chunk>(client->chunks.at(work)->duplicate());
-
-        size_t i = 0;
-        for (const auto offset : neighbor_offsets) {
-            ChunkIndex neighbor_index{work.pos + offset, work.lod};
-            if (!client->chunks.contains(neighbor_index)) return;
-            neighbors[i] = make_shared<Chunk>(client->chunks.at(neighbor_index)->duplicate());
-            i++;
-        }
-
-        unique_lock __(chunk_meshes_mutex);
-        chunk_meshes[work] = mesher->mesh_chunk(work, own_chunk, neighbors);
+        unique_lock lock(chunk_meshes_mutex);
+        result.revision = ++mesh_revision;
+        chunk_meshes[work] = std::move(result);
     }
 
-    enum MeshStatus { CAN_MESH, CANNOT_MESH, DOES_NOT_EXIST };
-
-    // Whether or not a certain chunk is possible to be meshed (Does it exist? Do its neighbors exist?)
-    MeshStatus can_mesh(ChunkIndex work) {
-        if (!client->chunks.contains(work)) return DOES_NOT_EXIST;
-
-        for (const auto offset : neighbor_offsets) {
-            if (!client->chunks.contains(ChunkIndex{work.pos + offset, work.lod})) return CANNOT_MESH;
-        }
-        return CAN_MESH;
-    }
-
-    // Returns a chunk that is (probably) ready to be meshed. It might have changed between the locks
-    // from some other thread, so double check just in case
+    // Pops the next chunk that still exists off the queue.
     // locks: chunks_to_mesh_mutex
-    // calls: can_mesh
+    // caller must hold a shared lock on chunks_mutex
     optional<ChunkIndex> get_work() {
-        lock_guard __(chunks_to_mesh_mutex);
-        if (chunks_to_mesh.empty()) return nullopt;
-        optional<ChunkIndex> retval = nullopt;
-        set<ChunkIndex> to_remove;
-        for (auto it = chunks_to_mesh.begin(); it != chunks_to_mesh.end(); it++) {
-            const auto status = can_mesh(*it);
-            if (status == DOES_NOT_EXIST) {
-                to_remove.insert(*it);
-            } else if (status == CAN_MESH) {
-                retval = *it;
-                chunks_to_mesh.erase(it);
-                break;
-            }
+        lock_guard lock(chunks_to_mesh_mutex);
+        while (!chunks_to_mesh.empty()) {
+            const ChunkIndex candidate = chunks_to_mesh.front();
+            chunks_to_mesh.pop_front();
+            chunks_to_mesh_pending.erase(candidate);
+
+            const auto it = client->chunks.find(candidate);
+            if (it != client->chunks.end() && it->second) return candidate;
         }
-        chunks_to_mesh.remove_if([&](const ChunkIndex& i) { return to_remove.contains(i); });
-        return retval;
+        return nullopt;
     }
 } REGISTER_MOD(WorldMeshHandlerImpl, WorldClient);

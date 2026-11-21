@@ -11,6 +11,8 @@
 #pragma once
 
 #include <list>
+#include <unordered_map>
+#include <unordered_set>
 #include <world/client/main.hpp>
 
 struct BlockVertex {
@@ -23,6 +25,8 @@ struct BlockVertex {
 struct ChunkMesh {
     std::vector<BlockVertex> vertices;
     std::any renderer_data;
+    /// @brief Incremented whenever this mesh is (re)built, so renderers can cache GPU buffers.
+    uint64_t revision = 0;
 };
 
 /// @brief A module that holds the chunks to mesh.
@@ -31,10 +35,12 @@ struct WorldMeshHandler : WorldClient::ThreadedModule {
     /// @brief Lock = update chunk mesh or mesh chunk
     std::mutex chunks_to_mesh_mutex;
     std::list<ChunkIndex> chunks_to_mesh;
+    /// @brief Mirrors \ref chunks_to_mesh so queueing is O(1) instead of O(n).
+    std::unordered_set<ChunkIndex> chunks_to_mesh_pending;
 
     /// @brief Shared lock = rendering, unique lock = add chunk mesh
     std::shared_mutex chunk_meshes_mutex;
-    std::map<ChunkIndex, ChunkMesh> chunk_meshes;
+    std::unordered_map<ChunkIndex, ChunkMesh> chunk_meshes;
     std::mutex meshing_mutex;
 };
 

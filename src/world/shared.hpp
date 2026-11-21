@@ -13,9 +13,17 @@
 #include <glm/ext/vector_int3.hpp>
 #include <shared_mutex>
 #include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <span>
+#include <vector>
 
 #include <registry/registry.hpp>
 #include <triolib.hpp>
+
+/// @brief The width (in blocks) of the highest-detail (LOD 0) chunk.
+extern const size_t* default_chunk_size;
 
 /**
  * @brief Represents a level of detail (LOD) for chunks in the world.
@@ -24,8 +32,13 @@
  */
 using LodLevel = unsigned int;
 
-/*
-*/
+/// @brief Integer division rounded toward negative infinity. Chunk math must not use
+/// truncating division, otherwise negative coordinates (west/south) belong to the wrong parent.
+constexpr inline int floor_div(int value, int divisor) {
+    const int quotient = value / divisor;
+    const int remainder = value % divisor;
+    return quotient - ((remainder != 0) && ((remainder < 0) != (divisor < 0)) ? 1 : 0);
+}
 
 struct LodDescriptor {
     /// @brief The width of a chunk **IN BLOCKS** at a specific level of detail (LOD).
@@ -36,11 +49,14 @@ struct LodDescriptor {
     /// Does not change the amount of blocks, just the size.
     /// If the associated \ref LodLevel is `0` then it **MUST** return `1`.
     /// @detail For example, `1` = normal size, `2` = double size, `4` = quadruple size, etc.
-    size_t size;
+    size_t scale;
+    /// @brief Get how many units long a chunk is in the world at this level of detail (LOD).
+    /// @detail This is the product of `width` and `scale`.
+    inline size_t size() const noexcept { return width * scale; }
 };
 
-/// @brief The default chunk size (width) in blocks for the highest level of detail (LOD 0).
-extern const size_t* default_chunk_size;
+/// @brief Validates a LOD list: non-empty, LOD 0 unscaled, power-of-two sizes, never shrinking.
+bool is_valid(std::span<const LodDescriptor> lods);
 
 struct Camera {
     float pitch = 0.0f;
@@ -53,8 +69,15 @@ struct ChunkPos {
     int x, y, z;
     inline auto operator<=>(const ChunkPos&) const = default;
     inline ChunkPos operator+(const ChunkPos& o) const { return {x + o.x, y + o.y, z + o.z}; }
+    inline ChunkPos operator-(const ChunkPos& o) const { return {x - o.x, y - o.y, z - o.z}; }
+    inline ChunkPos operator*(int scalar) const { return {x * scalar, y * scalar, z * scalar}; }
+    /// @note Floor division, so negative chunk coordinates map to the chunk that contains them.
+    inline ChunkPos operator/(int scalar) const {
+        return {floor_div(x, scalar), floor_div(y, scalar), floor_div(z, scalar)};
+    }
 };
 
+/// Contains pos and lod level
 struct ChunkIndex {
     ChunkPos pos;
     LodLevel lod;
@@ -62,12 +85,40 @@ struct ChunkIndex {
     inline auto operator<=>(const ChunkIndex&) const = default;
 };
 
+namespace std {
+    // Chunk keys are used in unordered containers in the hot loading / meshing paths.
+    template <>
+    struct hash<ChunkPos> {
+        size_t operator()(const ChunkPos& pos) const noexcept {
+            size_t hash = static_cast<size_t>(static_cast<uint32_t>(pos.x));
+            hash ^=
+                static_cast<size_t>(static_cast<uint32_t>(pos.y)) + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+            hash ^=
+                static_cast<size_t>(static_cast<uint32_t>(pos.z)) + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+            return hash;
+        }
+    };
+
+    template <>
+    struct hash<ChunkIndex> {
+        size_t operator()(const ChunkIndex& index) const noexcept {
+            size_t hash = std::hash<ChunkPos>{}(index.pos);
+            hash ^= static_cast<size_t>(index.lod) + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+            return hash;
+        }
+    };
+}  // namespace std
+
 struct Tile {
     RegistryUint id = RegistryNull;
     uint16_t data = 0;
     bool operator==(const Tile&) const;
     operator bool() const;
 };
+
+inline bool Tile::operator==(const Tile& other) const { return id == other.id && data == other.data; }
+
+inline Tile::operator bool() const { return id != RegistryNull && id != 0; }
 
 constexpr static Tile TileNull{RegistryNull, 0};
 
@@ -211,6 +262,36 @@ struct Chunk {
     std::shared_mutex mutex;
 
     bool should_render = true;
+
+    /**
+     * @brief Converts a chunk position from one level of detail (LOD) to another.
+     * @param current The current chunk position and LOD level.
+     * @param target_lod The target LOD level to convert to.
+     * If the target LOD is higher (less detailed, bigger), it must either be the same size or
+     * bigger, so it will simply return whatever chunk contains the \ref current chunk.
+     * If it is lower (more detailed, smaller), it must either be the same size or smaller.
+     * This means that this chunk is the "parent" of multiple chunks, so it will return the
+     * chunk with the smallest coordinates.
+     */
+    static ChunkPos convert_chunk_pos(std::span<const LodDescriptor> lods, ChunkIndex current, LodLevel target);
+
+    /**
+     * @brief Gets all descendants of a given chunk, down to LOD 0.
+     */
+    static std::vector<ChunkIndex> get_child_chunks(std::span<const LodDescriptor> lods, ChunkIndex current);
+
+    /**
+     * @brief Gets every direct (or deeper) child of \p current at exactly \p child.
+     * @note For adjacent LODs this is the 2x2x2 block of chunks that the parent covers.
+     */
+    static std::vector<ChunkIndex> get_child_chunks_lod_specific(
+        std::span<const LodDescriptor> lods, ChunkIndex current, LodLevel child);
+
+    /**
+     * @brief Gets the chunk directly above \p current (one LOD coarser), or nullopt if
+     * \p current is already the biggest LOD.
+     */
+    static std::optional<ChunkIndex> get_parent_chunk(std::span<const LodDescriptor> lods, ChunkIndex current);
 
     private:
     size_t chunk_width;

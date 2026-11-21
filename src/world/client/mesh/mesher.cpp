@@ -36,15 +36,16 @@ struct WorldMesherImpl : WorldMesher {
     }
 
     std::mutex speed_mutex;
-    unsigned long long average_over_second;
-    size_t average_amount = 0;
+    chrono::steady_clock::time_point speed_window_start = chrono::steady_clock::now();
+    size_t completed_in_window = 0;
 
     ChunkMesh mesh_chunk(
         ChunkIndex ownpos, shared_ptr<const Chunk> own, const array<shared_ptr<Chunk>, 6>& neighbors) override {
         if (!own) return {};
-        auto start = std::chrono::high_resolution_clock::now();
 
         vector<BlockVertex> mesh;
+        // Rough upper bound for a terrain surface; the vector grows if a chunk has more faces.
+        mesh.reserve(own->size() * own->size() * 6);
         const auto width = static_cast<int>(own->size());
         const auto add_face = [&](array<array<uint16_t, 3>, 4> positions, uint16_t lighting, int8_t yaw, int8_t pitch,
                                   int8_t roll) {
@@ -108,28 +109,19 @@ struct WorldMesherImpl : WorldMesher {
                         add_face({{{x0, y0, z1}, {x1, y0, z1}, {x1, y1, z1}, {x0, y1, z1}}}, 40000, 1, 0, 0);
                 }
 
-        auto end = std::chrono::high_resolution_clock::now();
+        {
+            std::lock_guard lock(speed_mutex);
+            completed_in_window++;
 
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-
-        std::lock_guard __(speed_mutex);
-
-        average_over_second += duration;
-        average_amount++;
-
-        run_limited(1) {
-            if (average_over_second == 0) {
-                average_amount = 0;
-                return {std::move(mesh), {}};
+            const auto now = chrono::steady_clock::now();
+            const auto elapsed = chrono::duration<double>(now - speed_window_start).count();
+            if (elapsed >= 1.0) {
+                console.debug << "Mesher throughput (chunks per second):\n"
+                              << static_cast<double>(completed_in_window) / elapsed
+                              << "\ntrials=" << completed_in_window;
+                completed_in_window = 0;
+                speed_window_start = now;
             }
-
-            double chunks_per_second = (1'000'000.0 * average_amount) / average_over_second;
-
-            console.debug << "Worldgen average speed (chunks per second):\n"
-                          << chunks_per_second << "\ntrials=" << average_amount;
-
-            average_over_second = 0;
-            average_amount = 0;
         }
 
         return {std::move(mesh), {}};

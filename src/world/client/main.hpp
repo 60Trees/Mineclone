@@ -11,6 +11,7 @@
 #pragma once
 
 #include <memory>
+#include <unordered_map>
 #include <world/shared.hpp>
 #include <world/server/main.hpp>
 #include <threads/task.hpp>
@@ -22,46 +23,30 @@
  */
 struct WorldClient : triolib::SubApp {
     tClass;
-    /**
-     * @brief Get a list of all chunks (higher lod only) that the given index overlaps.
-     * @detail For example: This chunk is lod=1 and is twice as physically large as lod=0 chunks, so it will return 8
-     * lod=0 chunks that it overlaps. If it is lod=0, it will return an empty vector.
-     * @note Because everything has to be a power of 2, it is physically impossible for a chunk to half overlap some
-     * other chunk.
-     * Also, it will not return any chunk not currently loaded.
-     */
-    virtual std::vector<ChunkIndex> get_overlapping_big(ChunkIndex index, bool locks = true) = 0;
-
-    /**
-     * @brief Get a list of all chunks (lower lod only) that the given index overlaps.
-     * @detail For example: This chunk is lod=1 and there is a lod=2 and an lod=3 chunk that it overlaps, so it will
-     * return those two chunks.
-     * @note It will not return any chunk not currently loaded.
-     */
-    virtual std::vector<ChunkIndex> get_overlapping_small(ChunkIndex index, bool locks = true) = 0;
-
-    /**
-     * @brief Get a list of all chunks (this lod only) that the given index's bigger overlapping smaller overlaps.
-     * Contains the input chunk as well
-     * @detail This is confusing as shit. Logic terms: [The smallest of \ref get_overlapping_big piped into the
-     * \ref get_overlapping_small] filtered by this lod only.
-     * Here's an example: This chunk is lod=1 and in order to render, every lod=1 chunk that is in the shadow of
-     * this one lod=2 chunk needs to exist, so this is all the chunks there.
-     * Still don't get it? Too bad
-     */
-    virtual std::vector<ChunkIndex> get_overlapping_neighbors(ChunkIndex index, bool locks = true) = 0;
-
+    /// @brief True if the chunk exists and is flagged as renderable. This does **not**
+    /// apply the LOD parent/child selection rules; see the renderer for those.
+    /// @note Pass \p locks = false when the caller already holds \ref chunks_mutex.
     virtual bool should_render_chunk(ChunkIndex index, bool locks = true) = 0;
+
+    /// @brief Horizontal/vertical radius, in chunks, for a given LOD.
+    /// Populated from options by the loader at startup.
+    Pair<size_t> view_distance(LodLevel lod) const {
+        if (lod < lod_view_distance.size()) return lod_view_distance[lod];
+        return {8, 4};
+    }
 
     /// @note The chunks are shared pointers so that, e.g if it is a singleplayer world then the server and client will
     /// have the same chunks, no need for storing two copies of the same world
-    std::map<ChunkIndex, std::shared_ptr<Chunk>> chunks;
+    std::unordered_map<ChunkIndex, std::shared_ptr<Chunk>> chunks;
     /// @brief Shared lock = iterating / referencing, unique lock = insert chunk / remove chunk
     std::shared_mutex chunks_mutex;
 
     /// @brief How many levels of detail (LOD) are supported by this world
     /// @note Must not be `0`
     size_t lod_count;
+
+    /// @brief Load radius per LOD, indexed by LOD. See \ref view_distance.
+    std::vector<Pair<size_t>> lod_view_distance;
 
     WorldServer* host = nullptr;
 
@@ -99,4 +84,7 @@ struct WorldClient : triolib::SubApp {
     };
 
     virtual ChunkPos get_camera_pos(LodLevel lod = 0, bool locks = true) = 0;
+
+    std::shared_mutex options_mutex;
+    nlohmann::json options{};
 };
