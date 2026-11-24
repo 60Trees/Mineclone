@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <vector>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 
 namespace {
     GLuint compile_shader(GLenum type, const char* source) {
@@ -39,44 +41,68 @@ namespace {
             layout(location = 0) in vec3 position;
             layout(location = 1) in float light;
             layout(location = 2) in vec2 texcoord;
+            layout(location = 3) in uvec2 texture_repeat;
             uniform mat4 view_projection;
             uniform vec3 chunk_offset;
             uniform float chunk_scale;
             out float vertex_light;
             out vec2 vertex_texcoord;
+            flat out vec2 vertex_repeat;
             void main() {
                 gl_Position = view_projection * vec4(chunk_offset + position * chunk_scale, 1.0);
                 vertex_light = light;
                 vertex_texcoord = texcoord;
+                vertex_repeat = vec2(texture_repeat);
             })";
         constexpr const char* fragment_source = R"(#version 300 es
             precision mediump float;
             in float vertex_light;
             in vec2 vertex_texcoord;
+            flat in vec2 vertex_repeat;
             uniform sampler2D block_atlas;
+            uniform vec4 block_texture_rect;
             out vec4 color;
-            void main() { color = vec4(texture(block_atlas, vertex_texcoord).rgb * vertex_light, 1.0); })";
+            void main() {
+                // texcoord is tile-local [0, 1]. Tile it, then map it back into the
+                // block's rectangle inside the atlas. Clamping below 1 keeps the last
+                // texel from wrapping to the first one at a face's far edge.
+                vec2 tiled = fract(clamp(vertex_texcoord, vec2(0.0), vec2(0.999999)) * vertex_repeat);
+                vec2 atlas_uv = block_texture_rect.xy + tiled * block_texture_rect.zw;
+                color = vec4(texture(block_atlas, atlas_uv).rgb * vertex_light, 1.0);
+            })";
 #else
         constexpr const char* vertex_source = R"(#version 430 core
             layout(location = 0) in vec3 position;
             layout(location = 1) in float light;
             layout(location = 2) in vec2 texcoord;
+            layout(location = 3) in uvec2 texture_repeat;
             uniform mat4 view_projection;
             uniform vec3 chunk_offset;
             uniform float chunk_scale;
             out float vertex_light;
             out vec2 vertex_texcoord;
+            flat out vec2 vertex_repeat;
             void main() {
                 gl_Position = view_projection * vec4(chunk_offset + position * chunk_scale, 1.0);
                 vertex_light = light;
                 vertex_texcoord = texcoord;
+                vertex_repeat = vec2(texture_repeat);
             })";
         constexpr const char* fragment_source = R"(#version 430 core
             in float vertex_light;
             in vec2 vertex_texcoord;
+            flat in vec2 vertex_repeat;
             uniform sampler2D block_atlas;
+            uniform vec4 block_texture_rect;
             out vec4 color;
-            void main() { color = vec4(texture(block_atlas, vertex_texcoord).rgb * vertex_light, 1.0); })";
+            void main() {
+                // texcoord is tile-local [0, 1]. Tile it, then map it back into the
+                // block's rectangle inside the atlas. Clamping below 1 keeps the last
+                // texel from wrapping to the first one at a face's far edge.
+                vec2 tiled = fract(clamp(vertex_texcoord, vec2(0.0), vec2(0.999999)) * vertex_repeat);
+                vec2 atlas_uv = block_texture_rect.xy + tiled * block_texture_rect.zw;
+                color = vec4(texture(block_atlas, atlas_uv).rgb * vertex_light, 1.0);
+            })";
 #endif
 
         const GLuint vertex = compile_shader(GL_VERTEX_SHADER, vertex_source);
@@ -112,6 +138,9 @@ struct WorldGlRenderer : BaseRenderer {
     GLint chunk_offset_location = -1;
     GLint chunk_scale_location = -1;
     GLint block_atlas_location = -1;
+    GLint block_texture_rect_location = -1;
+    /// @brief `xy` = tile origin, `zw` = tile size, both in atlas UV space.
+    glm::vec4 block_texture_rect{0.0f, 0.0f, 1.0f, 1.0f};
 
     /// @brief One persistent GPU buffer per chunk mesh, uploaded once when the mesh changes.
     struct GpuMesh {
@@ -122,6 +151,17 @@ struct WorldGlRenderer : BaseRenderer {
     };
     std::unordered_map<ChunkIndex, GpuMesh> gpu_meshes;
 
+    /// @brief Interleaved GPU vertex. The two repeat counts stay 8-bit integers instead
+    /// of being expanded to floats, so the extra data costs only two bytes per vertex.
+    struct GpuBlockVertex {
+        float x, y, z;
+        float light;
+        float u, v;
+        uint8_t repeat_x, repeat_y;
+        uint8_t padding[2] = {};
+    };
+    static_assert(sizeof(GpuBlockVertex) == 28, "Unexpected GpuBlockVertex padding");
+
     void upload_mesh(const ChunkIndex& index, const ChunkMesh& mesh) {
         GpuMesh& gpu = gpu_meshes[index];
         if (gpu.vao && gpu.revision == mesh.revision) return;
@@ -131,32 +171,34 @@ struct WorldGlRenderer : BaseRenderer {
             glGenBuffers(1, &gpu.vbo);
             glBindVertexArray(gpu.vao);
             glBindBuffer(GL_ARRAY_BUFFER, gpu.vbo);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), nullptr);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GpuBlockVertex),
+                reinterpret_cast<const void*>(offsetof(GpuBlockVertex, x)));
             glEnableVertexAttribArray(0);
-            glVertexAttribPointer(
-                1, 1, GL_FLOAT, GL_FALSE, 6 * sizeof(float), reinterpret_cast<const void*>(3 * sizeof(float)));
+            glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(GpuBlockVertex),
+                reinterpret_cast<const void*>(offsetof(GpuBlockVertex, light)));
             glEnableVertexAttribArray(1);
-            glVertexAttribPointer(
-                2, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), reinterpret_cast<const void*>(4 * sizeof(float)));
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GpuBlockVertex),
+                reinterpret_cast<const void*>(offsetof(GpuBlockVertex, u)));
             glEnableVertexAttribArray(2);
+            // Integer attribute: uvec2 in the shader, so use the I variant.
+            glVertexAttribIPointer(3, 2, GL_UNSIGNED_BYTE, sizeof(GpuBlockVertex),
+                reinterpret_cast<const void*>(offsetof(GpuBlockVertex, repeat_x)));
+            glEnableVertexAttribArray(3);
             glBindVertexArray(0);
         }
 
-        std::vector<float> vertices;
-        vertices.reserve(mesh.vertices.size() * 6);
+        std::vector<GpuBlockVertex> vertices;
+        vertices.reserve(mesh.vertices.size());
         for (const auto& vertex : mesh.vertices) {
-            vertices.push_back(static_cast<float>(vertex.x));
-            vertices.push_back(static_cast<float>(vertex.y));
-            vertices.push_back(static_cast<float>(vertex.z));
-            vertices.push_back(static_cast<float>(vertex.lighting) / 65535.0f);
-            vertices.push_back(vertex.u);
-            vertices.push_back(vertex.v);
+            vertices.push_back({static_cast<float>(vertex.x), static_cast<float>(vertex.y),
+                static_cast<float>(vertex.z), static_cast<float>(vertex.lighting) / 65535.0f, vertex.u, vertex.v,
+                vertex.texture_repeat_x, vertex.texture_repeat_y});
         }
 
         glBindVertexArray(gpu.vao);
         glBindBuffer(GL_ARRAY_BUFFER, gpu.vbo);
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(float)), vertices.data(),
-            GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(GpuBlockVertex)),
+            vertices.data(), GL_STATIC_DRAW);
         glBindVertexArray(0);
 
         gpu.count = static_cast<GLsizei>(mesh.vertices.size());
@@ -169,6 +211,16 @@ struct WorldGlRenderer : BaseRenderer {
         if (!resources.has_loaded) return;
         const auto* atlas = resources.resources.get_atlas("assets/textures/block");
         if (!atlas) throw std::runtime_error("Missing block texture atlas");
+        const auto texture = atlas->locations.find("minecraft/textures/block/stone.png");
+        if (texture == atlas->locations.end()) throw std::runtime_error("Missing stone texture in block atlas");
+        const auto& rect = texture->second;
+        const auto atlas_width = static_cast<float>(atlas->image.width);
+        const auto atlas_height = static_cast<float>(atlas->image.height);
+        block_texture_rect = {static_cast<float>(rect.first.x) / atlas_width,
+            static_cast<float>(rect.first.y) / atlas_height,
+            static_cast<float>(rect.second.x - rect.first.x) / atlas_width,
+            static_cast<float>(rect.second.y - rect.first.y) / atlas_height};
+
         glGenTextures(1, &block_atlas);
         glBindTexture(GL_TEXTURE_2D, block_atlas);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -185,6 +237,7 @@ struct WorldGlRenderer : BaseRenderer {
         chunk_offset_location = glGetUniformLocation(program, "chunk_offset");
         chunk_scale_location = glGetUniformLocation(program, "chunk_scale");
         block_atlas_location = glGetUniformLocation(program, "block_atlas");
+        block_texture_rect_location = glGetUniformLocation(program, "block_texture_rect");
     }
 
     void loop() override {
@@ -206,7 +259,13 @@ struct WorldGlRenderer : BaseRenderer {
 
         const auto size = renderer->window_size();
         const float aspect = size.y == 0 ? 1.0f : static_cast<float>(size.x) / static_cast<float>(size.y);
-        const auto projection = glm::perspective(glm::radians(70.0f), aspect, 0.05f, 4096.0f);
+        // Perspective depth is extremely nonlinear: one depth step covers roughly
+        // n * z^2 / (2^bits - 1) world units at distance z. A 5 cm near plane was
+        // wasting most of the depth range on the first few centimetres, so push it
+        // out to 10 cm. The 24-bit depth buffer is requested in set_opengl_version().
+        constexpr float near_plane = 0.1f;
+        constexpr float far_plane = 4096.0f;
+        const auto projection = glm::perspective(glm::radians(70.0f), aspect, near_plane, far_plane);
         const auto direction = glm::vec3(
             std::cos(glm::radians(static_cast<float>(camera.pitch))) *
                 std::cos(glm::radians(static_cast<float>(camera.yaw))),
@@ -221,6 +280,8 @@ struct WorldGlRenderer : BaseRenderer {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, block_atlas);
         glUniform1i(block_atlas_location, 0);
+        glUniform4f(block_texture_rect_location, block_texture_rect.x, block_texture_rect.y, block_texture_rect.z,
+            block_texture_rect.w);
         const auto view_projection = projection * view;
         glUniformMatrix4fv(view_projection_location, 1, GL_FALSE, glm::value_ptr(view_projection));
 

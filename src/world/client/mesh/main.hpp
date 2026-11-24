@@ -18,7 +18,13 @@
 struct BlockVertex {
     uint16_t x, y, z;
     uint16_t lighting;
+    /// @brief Texture coordinates **inside the block's atlas tile**, in the range `[0, 1]`.
     float u, v;
+    /// @brief How many times the atlas tile is repeated across this face, per axis.
+    /// @detail A chunk at LOD `n` draws its blocks `scale` times larger in world space,
+    /// so the tile is repeated `scale` times to keep the texture density constant.
+    /// At most 255 (the LOD scales are 1, 2, 4, 8, ...).
+    uint8_t texture_repeat_x = 1, texture_repeat_y = 1;
     int8_t normal_yaw, normal_pitch, normal_roll;
 };
 

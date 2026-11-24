@@ -16,6 +16,12 @@ void set_opengl_version() {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_VERSION_MAJOR);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_VERSION_MINOR);
 
+    // SDL defaults to a 16-bit depth buffer. With a perspective projection almost all
+    // of the 16-bit range is spent in the first few centimetres in front of the camera,
+    // so distant geometry only gets a handful of distinct depth values. Ask for 24 bits
+    // before the window (and therefore the GL context) is created.
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+
     opengl::gl_log << "Requesting OpenGL " BLUE << GL_VERSION_MAJOR << "."
                    << GL_VERSION_MINOR << RESET;
 

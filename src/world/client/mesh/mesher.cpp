@@ -8,7 +8,6 @@
  */
 
 #include "main.hpp"
-#include <base/resources.hpp>
 #include <chrono>
 #include <stdexcept>
 
@@ -18,22 +17,6 @@ using namespace std;
 // it is already passed in via the parameters
 struct WorldMesherImpl : WorldMesher {
     tImplClass(WorldMesher);
-    float texture_u0 = 0.0f;
-    float texture_v0 = 0.0f;
-    float texture_u1 = 1.0f;
-    float texture_v1 = 1.0f;
-
-    void init() override {
-        auto* atlas = parent->application->getmod<ResourceHandler>().resources.get_atlas("assets/textures/block");
-        if (!atlas) throw std::runtime_error("Missing block texture atlas");
-        const auto texture = atlas->locations.find("minecraft/textures/block/stone.png");
-        if (texture == atlas->locations.end()) throw std::runtime_error("Missing stone texture in block atlas");
-        const auto& rect = texture->second;
-        texture_u0 = static_cast<float>(rect.first.x) / static_cast<float>(atlas->image.width);
-        texture_v0 = static_cast<float>(rect.first.y) / static_cast<float>(atlas->image.height);
-        texture_u1 = static_cast<float>(rect.second.x) / static_cast<float>(atlas->image.width);
-        texture_v1 = static_cast<float>(rect.second.y) / static_cast<float>(atlas->image.height);
-    }
 
     std::mutex speed_mutex;
     chrono::steady_clock::time_point speed_window_start = chrono::steady_clock::now();
@@ -47,15 +30,23 @@ struct WorldMesherImpl : WorldMesher {
         // Rough upper bound for a terrain surface; the vector grows if a chunk has more faces.
         mesh.reserve(own->size() * own->size() * 6);
         const auto width = static_cast<int>(own->size());
+
+        // A block at LOD n is drawn `scale` times larger, so its face covers `scale`
+        // texture tiles in each direction. Keep the texture density identical at every
+        // LOD by repeating the tile once per world unit.
+        const auto lod_scale = host->lod_descriptors.at(ownpos.lod).scale;
+        if (lod_scale < 1 || lod_scale > 255)
+            throw std::runtime_error("LOD scale does not fit in the 8-bit texture repeat field");
+        const auto repeat = static_cast<uint8_t>(lod_scale);
+
         const auto add_face = [&](array<array<uint16_t, 3>, 4> positions, uint16_t lighting, int8_t yaw, int8_t pitch,
                                   int8_t roll) {
             constexpr array<unsigned, 6> indices{0, 1, 2, 0, 2, 3};
             constexpr array<array<uint16_t, 2>, 4> uv{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
             for (const auto i : indices) {
                 const auto& position = positions[i];
-                mesh.push_back(
-                    {position[0], position[1], position[2], lighting, texture_u0 + uv[i][0] * (texture_u1 - texture_u0),
-                        texture_v0 + uv[i][1] * (texture_v1 - texture_v0), yaw, pitch, roll});
+                mesh.push_back({position[0], position[1], position[2], lighting, static_cast<float>(uv[i][0]),
+                    static_cast<float>(uv[i][1]), repeat, repeat, yaw, pitch, roll});
             }
         };
 
