@@ -115,6 +115,12 @@ struct WorldMesherImpl : WorldMesher {
             }
         }
 
+        // Empty terrain (sky/underground) keeps a 6144-vertex reserve (~147 KiB) alive
+        // for every chunk. At high view distances that is gigabytes of unused memory,
+        // so hand it back. The mesh entry itself must stay present: the renderer treats
+        // an existing empty mesh as "meshed".
+        if (mesh.empty()) vector<BlockVertex>().swap(mesh);
+
         return {std::move(mesh), {}};
     }
 } REGISTER_MOD(WorldMesherImpl, WorldClient);

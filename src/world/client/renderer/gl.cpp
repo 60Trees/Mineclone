@@ -331,20 +331,28 @@ struct WorldGlRenderer : BaseRenderer {
         // Only the LOD directly above is checked. The parent hides this chunk when the
         // parent itself would render, i.e. it exists/has a mesh and its own children are
         // not all ready (a complete parent is replaced by the level below instead).
-        const auto parent_covers = [&](const ChunkIndex& index) {
-            if (index.lod + 1 >= world->lod_count) return false;  // biggest LOD has no parent
+        const auto parent_draws = [&](const ChunkIndex& parent) {
+            return ready_to_cover(parent) && !children_ready(parent);
+        };
 
-            const auto parent = Chunk::get_parent_chunk(lods, index);
-            if (!parent || !ready_to_cover(*parent)) return false;
-            return !children_ready(*parent);
+        // A drawn ancestor covers this chunk's entire area. Checking only the immediate
+        // parent is not enough: a grandparent can be drawn while this chunk's direct
+        // parent is complete and therefore hidden. Walk the whole chain so a fine chunk
+        // can never draw on top of a coarser one that is already covering its area.
+        const auto ancestor_covers = [&](const ChunkIndex& index) {
+            for (auto parent = Chunk::get_parent_chunk(lods, index); parent;
+                parent = Chunk::get_parent_chunk(lods, *parent)) {
+                if (parent_draws(*parent)) return true;
+            }
+            return false;
         };
 
         // Exactly one level should be visible in any region:
         //  - if the level below is complete, this chunk is redundant;
-        //  - if the level above is incomplete (so it renders), this chunk is redundant.
+        //  - if any coarser ancestor is being drawn, this chunk is redundant.
         const auto should_draw = [&](const ChunkIndex& index) {
             if (children_ready(index)) return false;
-            return !parent_covers(index);
+            return !ancestor_covers(index);
         };
 
         for (const auto& [index, mesh] : meshes->chunk_meshes) {

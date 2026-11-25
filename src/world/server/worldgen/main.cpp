@@ -33,9 +33,9 @@ struct WorldGenImpl : WorldGen {
         const auto zd = z.convert_to<double>();
         if (x == 0 || z == 0) return 0;
 
-        const auto terrain_noise = noise.noise(xd / 16.0, 0.0, zd / 16.0);
-        const auto height = std::floor(32.0 + terrain_noise * 12.0);
-        return BigInt(std::clamp(height, 1.0, 64.0));
+        const auto terrain_noise = noise.noise(xd / 150.0, 0.0, zd / 150.0);
+        const auto height = std::floor(32.0 + terrain_noise * 128.0);
+        return BigInt(height);
     }
 
     std::mutex speed_mutex;

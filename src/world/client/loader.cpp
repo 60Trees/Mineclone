@@ -64,9 +64,20 @@ namespace {
                (dz == rx + 1 && dx <= rx && dy <= ry);
     }
 
-    /// Per-lod bookkeeping. Deliberately contains no position list: candidates are
-    /// re-derived from the *current* camera every tick, so a fast camera can never
-    /// leave the loader working through a stale queue around its previous position.
+    /// @brief One candidate that still needs work once the batch scan is done.
+    struct CandidateWork {
+        ChunkIndex key;
+        bool render = false;
+        /// Already exists but must be promoted from secondary to primary.
+        bool promote = false;
+        /// The chunk to insert / the promoted chunk, filled in while the batch is processed.
+        shared_ptr<Chunk> chunk;
+    };
+
+    /// Per-lod bookkeeping. The candidate list is rebuilt only when the camera enters a
+    /// new chunk (or the radius changes); until then a forward-only cursor walks it once.
+    /// This is what stops the loader from re-deriving and re-scanning the whole region
+    /// from the centre on every single tick.
     struct CandidateCache {
         ChunkPos camera{};
         Pair<size_t> radius{};
@@ -75,6 +86,16 @@ namespace {
         bool settled = false;
         /// Used to log each LOD reaching a full load once, instead of every time.
         bool announced = false;
+
+        /// @brief Every chunk this LOD needs, in load order: the centre-out primary box
+        /// followed by the secondary shell.
+        std::vector<ChunkIndex> candidates;
+        /// @brief `candidates[0..primary_count)` are primary (renderable) chunks.
+        size_t primary_count = 0;
+        /// @brief Next candidate that has not been inspected yet.
+        size_t cursor = 0;
+        /// @brief Scratch buffer so a tick does not allocate.
+        std::vector<CandidateWork> batch;
     };
 }  // namespace
 
@@ -95,120 +116,168 @@ struct WorldLoader : WorldClient::ThreadedModule {
         return mesh_handler;
     }
 
-    void queue_mesh(const ChunkIndex& key) {
-        auto* handler = get_mesh_handler();
-        lock_guard lock(handler->chunks_to_mesh_mutex);
-        if (handler->chunks_to_mesh_pending.insert(key).second) handler->chunks_to_mesh.push_back(key);
-    }
-
-    /// Queue the chunk itself (if it is rendered) and its rendered neighbours for meshing.
-    /// Neighbours are re-meshed because a chunk appearing / changing on their border
-    /// changes which faces are visible.
-    void mark_dirty(const ChunkIndex& key, bool render) {
-        if (render) queue_mesh(key);
-
-        shared_lock lock(client->chunks_mutex);
-        for (const auto& offset : neighbor_offsets) {
-            const ChunkIndex neighbor{key.pos + offset, key.lod};
-            const auto it = client->chunks.find(neighbor);
-            if (it != client->chunks.end() && it->second && it->second->should_render) queue_mesh(neighbor);
-        }
-    }
-
-    /// Tries to make the given chunk exist, and rendered if requested.
-    /// Returns true only if something changed (a chunk was generated or promoted).
-    bool attempt(const ChunkIndex& key, bool render) {
-        {
-            shared_lock lock(client->chunks_mutex);
-            const auto it = client->chunks.find(key);
-            if (it != client->chunks.end() && it->second) {
-                // Never demote a rendered chunk, and never regenerate an existing one.
-                if (!render || it->second->should_render) return false;
-            }
-        }
-
-        shared_ptr<Chunk> chunk;
-        {
-            // It might exist as a secondary (non-rendered) chunk; promote it.
-            unique_lock lock(client->chunks_mutex);
-            const auto it = client->chunks.find(key);
-            if (it != client->chunks.end() && it->second) {
-                if (!render || it->second->should_render) return false;
-                it->second->should_render = true;
-                chunk = it->second;
-            }
-        }
-
-        if (!chunk) {
-            // Generate outside of the lock so other threads can keep reading the map.
-            auto generated = client->host->request_chunk(key);
-            if (!generated) return false;
-            generated->should_render = render;
-            chunk = generated;
-
-            unique_lock lock(client->chunks_mutex);
-            const auto [it, inserted] = client->chunks.try_emplace(key, chunk);
-            if (!inserted) {
-                // Somebody else got there first; keep the existing chunk.
-                if (render && !it->second->should_render) it->second->should_render = true;
-                chunk = it->second;
-            }
-        }
-
-        mark_dirty(key, render);
-        return true;
-    }
-
-    /// Walks the primary box in Chebyshev shells around the camera, so the closest
-    /// missing chunks are always attempted first — even if the camera just teleported.
-    void load_primary(LodLevel lod, const ChunkPos& camera, Pair<size_t> radius, size_t& budget, bool& worked) {
+    /// @brief Fill \p cache's candidate list for one camera position, in load order.
+    /// @detail The primary box is walked in Chebyshev shells so the closest chunks are
+    /// attempted first. The shell walk visits only the shell itself, instead of scanning
+    /// the whole cube and skipping the interior. The secondary shell follows.
+    void rebuild_candidates(CandidateCache& cache, LodLevel lod, const ChunkPos& camera, Pair<size_t> radius) {
         const int rx = static_cast<int>(radius.x);
         const int ry = static_cast<int>(radius.y);
         const int max_radius = std::max(rx, ry);
 
-        for (int r = 0; r <= max_radius && budget > 0; ++r) {
-            for (int x = std::max(-r, -rx); x <= std::min(r, rx) && budget > 0; ++x)
-                for (int y = std::max(-r, -ry); y <= std::min(r, ry) && budget > 0; ++y)
-                    for (int z = std::max(-r, -rx); z <= std::min(r, rx) && budget > 0; ++z) {
-                        if (std::max({std::abs(x), std::abs(y), std::abs(z)}) != r) continue;
+        cache.candidates.clear();
+        cache.candidates.reserve(static_cast<size_t>(2 * rx + 3) * (2 * ry + 3) * (2 * rx + 3));
 
-                        if (attempt({{camera.x + x, camera.y + y, camera.z + z}, lod}, true)) {
-                            worked = true;
-                            --budget;
-                        }
+        const auto add = [&](int x, int y, int z) {
+            cache.candidates.push_back({{camera.x + x, camera.y + y, camera.z + z}, lod});
+        };
+
+        add(0, 0, 0);
+        for (int r = 1; r <= max_radius; ++r) {
+            const int xr = std::min(r, rx);
+            const int yr = std::min(r, ry);
+
+            // x = +/-r faces, the full y/z cross-section.
+            if (r <= rx) {
+                for (int y = -yr; y <= yr; ++y)
+                    for (int z = -xr; z <= xr; ++z) {
+                        add(-r, y, z);
+                        add(r, y, z);
                     }
+            }
+            // y = +/-r faces, without the x edges already covered above.
+            if (r <= ry) {
+                for (int x = -xr; x <= xr; ++x) {
+                    if (std::abs(x) == r) continue;
+                    for (int z = -xr; z <= xr; ++z) {
+                        add(x, -r, z);
+                        add(x, r, z);
+                    }
+                }
+            }
+            // z = +/-r faces, without the x/y edges already covered above.
+            if (r <= rx) {
+                for (int x = -xr; x <= xr; ++x) {
+                    if (std::abs(x) == r) continue;
+                    for (int y = -yr; y <= yr; ++y) {
+                        if (std::abs(y) == r) continue;
+                        add(x, y, -r);
+                        add(x, y, r);
+                    }
+                }
+            }
+        }
+        cache.primary_count = cache.candidates.size();
+
+        // The six faces of the one-chunk shell. These are invisible; they only exist so
+        // the chunks on the edge of the primary box can be meshed.
+        for (int y = -ry; y <= ry; ++y)
+            for (int z = -rx; z <= rx; ++z) {
+                add(-rx - 1, y, z);
+                add(rx + 1, y, z);
+            }
+        for (int x = -rx; x <= rx; ++x)
+            for (int z = -rx; z <= rx; ++z) {
+                add(x, -ry - 1, z);
+                add(x, ry + 1, z);
+            }
+        for (int x = -rx; x <= rx; ++x)
+            for (int y = -ry; y <= ry; ++y) {
+                add(x, y, -rx - 1);
+                add(x, y, rx + 1);
+            }
+
+        cache.cursor = 0;
+        cache.settled = false;
+    }
+
+    /// @brief Walk forward from the cursor, collecting up to \p limit candidates that
+    /// still need work. Every existence check is made under a single shared lock, and
+    /// the cursor only moves forward, so each candidate is inspected once.
+    void collect_batch(CandidateCache& cache, size_t limit, vector<CandidateWork>& out) {
+        out.clear();
+        shared_lock lock(client->chunks_mutex);
+        while (cache.cursor < cache.candidates.size() && out.size() < limit) {
+            const size_t index = cache.cursor++;
+            const ChunkIndex& key = cache.candidates[index];
+            const bool render = index < cache.primary_count;
+
+            const auto it = client->chunks.find(key);
+            if (it != client->chunks.end() && it->second) {
+                // Already there. Primary chunks that exist but are not rendered are
+                // promoted; everything else needs nothing.
+                if (it->second->should_render || !render) continue;
+                out.push_back({key, render, true, nullptr});
+            } else {
+                out.push_back({key, render, false, nullptr});
+            }
         }
     }
 
-    /// Loads the six faces of the shell around the primary box. These are invisible,
-    /// they only exist so edge chunks can be meshed.
-    void load_secondary(LodLevel lod, const ChunkPos& camera, Pair<size_t> radius, size_t& budget, bool& worked) {
-        const int rx = static_cast<int>(radius.x);
-        const int ry = static_cast<int>(radius.y);
+    /// @brief Generate / promote one batch of candidates.
+    /// @detail Generation runs outside the map lock, and the map is only locked once to
+    /// insert the whole batch and once to queue the resulting mesh work. The loader is
+    /// the only writer and ticks are serialised by \ref loading_mutex, so the state the
+    /// batch scan saw is still valid when it is applied.
+    void process_batch(CandidateCache& cache, size_t& budget, bool& worked) {
+        vector<CandidateWork>& batch = cache.batch;
+        collect_batch(cache, std::min(budget, load_batch), batch);
 
-        const auto try_face = [&](int x, int y, int z) {
-            if (budget == 0) return;
-            if (attempt({{x, y, z}, lod}, false)) {
-                worked = true;
-                --budget;
-            }
-        };
+        for (auto& item : batch) {
+            if (item.promote) continue;
+            item.chunk = client->host->request_chunk(item.key);
+            if (item.chunk) item.chunk->should_render = item.render;
+        }
 
-        for (int y = -ry; y <= ry && budget > 0; ++y)
-            for (int z = -rx; z <= rx && budget > 0; ++z) {
-                try_face(camera.x - rx - 1, camera.y + y, camera.z + z);
-                try_face(camera.x + rx + 1, camera.y + y, camera.z + z);
+        {
+            unique_lock lock(client->chunks_mutex);
+            for (auto& item : batch) {
+                if (item.promote) {
+                    const auto it = client->chunks.find(item.key);
+                    if (it != client->chunks.end() && it->second) {
+                        it->second->should_render = true;
+                        item.chunk = it->second;
+                    }
+                    continue;
+                }
+                if (!item.chunk) continue;
+                const auto [it, inserted] = client->chunks.try_emplace(item.key, item.chunk);
+                if (!inserted) {
+                    if (item.render && !it->second->should_render) it->second->should_render = true;
+                    item.chunk = it->second;
+                }
             }
-        for (int x = -rx; x <= rx && budget > 0; ++x)
-            for (int z = -rx; z <= rx && budget > 0; ++z) {
-                try_face(camera.x + x, camera.y - ry - 1, camera.z + z);
-                try_face(camera.x + x, camera.y + ry + 1, camera.z + z);
+        }
+
+        // Queue the new / promoted chunks and the rendered neighbours whose border
+        // changed. One shared lock and one queue lock for the whole batch.
+        vector<ChunkIndex> to_mesh;
+        to_mesh.reserve(batch.size() * (neighbor_offsets.size() + 1));
+        {
+            shared_lock lock(client->chunks_mutex);
+            for (const auto& item : batch) {
+                if (!item.chunk) continue;
+                if (item.render) to_mesh.push_back(item.key);
+                for (const auto& offset : neighbor_offsets) {
+                    const ChunkIndex neighbor{item.key.pos + offset, item.key.lod};
+                    const auto it = client->chunks.find(neighbor);
+                    if (it != client->chunks.end() && it->second && it->second->should_render)
+                        to_mesh.push_back(neighbor);
+                }
             }
-        for (int x = -rx; x <= rx && budget > 0; ++x)
-            for (int y = -ry; y <= ry && budget > 0; ++y) {
-                try_face(camera.x + x, camera.y + y, camera.z - rx - 1);
-                try_face(camera.x + x, camera.y + y, camera.z + rx + 1);
-            }
+        }
+        if (!to_mesh.empty()) {
+            auto* handler = get_mesh_handler();
+            lock_guard lock(handler->chunks_to_mesh_mutex);
+            for (const auto& key : to_mesh)
+                if (handler->chunks_to_mesh_pending.insert(key).second) handler->chunks_to_mesh.push_back(key);
+        }
+
+        size_t processed = 0;
+        for (const auto& item : batch)
+            if (item.chunk) processed++;
+        budget -= std::min(budget, processed);
+        worked = worked || processed > 0;
     }
 
     /// Drops chunks that are no longer in range, and marks shell chunks as non-rendered
@@ -279,10 +348,13 @@ struct WorldLoader : WorldClient::ThreadedModule {
             cache.valid = true;
             cache.camera = camera;
             cache.radius = radius;
-            cache.settled = false;
             // Drop chunks left behind by the old position immediately. This is what
             // makes a teleport stop loading (and rendering) around the old spot.
             if (had_cache) reconcile_chunks(lod, camera, radius);
+            // Build the ordered candidate list for the new position. This is one pass
+            // over the region (about 14 us at LOD 0) and only happens when the camera
+            // actually enters a new chunk.
+            rebuild_candidates(cache, lod, camera, radius);
         }
 
         if (cache.settled) {
@@ -298,15 +370,16 @@ struct WorldLoader : WorldClient::ThreadedModule {
 
         size_t budget = load_batch;
         bool worked = false;
+        process_batch(cache, budget, worked);
 
-        load_primary(lod, camera, radius, budget, worked);
-        if (budget > 0) load_secondary(lod, camera, radius, budget, worked);
-
-        // If the budget was not exhausted, the whole region has been visited.
-        cache.settled = budget > 0;
-        if (cache.settled && !cache.announced) {
-            cache.announced = true;
-            console.debug << "LOD " << lod << " loaded (" << radius.x << ", " << radius.y << ")";
+        // The cursor only stops short of the end when the budget ran out, so reaching
+        // the end means every candidate has been visited.
+        if (cache.cursor >= cache.candidates.size()) {
+            cache.settled = true;
+            if (!cache.announced) {
+                cache.announced = true;
+                console.debug << "LOD " << lod << " loaded (" << radius.x << ", " << radius.y << ")";
+            }
         }
         return worked;
     }
