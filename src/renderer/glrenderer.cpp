@@ -85,8 +85,7 @@ struct MainGlRendererImpl : MainRenderer {
             if (!renderermod->is_active()) continue;
             auto renderer = renderermod->create_renderer();
             renderer->init();
-            auto ptr = renderer.get();
-            size_t hash = typeid(*ptr).hash_code();
+            size_t hash = typeid(*renderermod).hash_code();
             opengl::gl_log << "Activated renderer: " << renderer->vname();
             renderers.insert({hash, std::move(renderer)});
         }

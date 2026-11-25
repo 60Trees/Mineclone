@@ -60,3 +60,10 @@ struct Position {
         return result;
     }
 };
+
+struct BigPos {
+    BigInt x = 0, y = 0, z = 0;
+};
+
+template <typename T>
+struct Pair { T x; T y; };

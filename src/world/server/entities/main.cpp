@@ -1,9 +1,10 @@
-#include "entity.hpp"
+#include "main.hpp"
 #include <string_view>
 #include <triolib.hpp>
-#include <world/world.hpp>
+#include <world/server/main.hpp>
 #include <random>
 #include <base/controls.hpp>
+#include <mutex>
 
 nlohmann::json any_to_json(const std::any& value) {
     if (!value.has_value()) return nullptr;
@@ -105,21 +106,8 @@ Entity::Entity(const nlohmann::json& data, Application& app) : id(extract_id(dat
         vel = {data["vel"][0].get<double>(), data["vel"][1].get<double>(), data["vel"][2].get<double>()};
         persistent = data["persistent"].get<bool>();
         {
-            const BigPos& world_offset = app.get_subapp<World>().offset;
-            // [x, y, z] strings
-            const auto& offset = data["pos"]["offset"];
-            // [x, y, z] doubles
             const auto& pos_value = data["pos"]["value"];
-            BigPos entity_offset = {
-                BigInt(offset[0].get<string>()),
-                BigInt(offset[1].get<string>()),
-                BigInt(offset[2].get<string>()),
-            };
-            pos = {
-                pos_value[0].get<double>() + (entity_offset.x - world_offset.x).convert_to<double>(),
-                pos_value[1].get<double>() + (entity_offset.y - world_offset.y).convert_to<double>(),
-                pos_value[2].get<double>() + (entity_offset.z - world_offset.z).convert_to<double>(),
-            };
+            pos = {pos_value[0].get<double>(), pos_value[1].get<double>(), pos_value[2].get<double>()};
         }
     } catch (const exception& e) {
         console.err << "Error while loading entity from JSON: " << data.dump() << "\n" << e.what();
@@ -158,13 +146,13 @@ EntityRegEntry* get_entityregentry(Application& app, string_view id) {
     return entityregentry;
 }
 nlohmann::json Entity::dump(Application& app) const {
-    auto& world = app.get_subapp<World>();
+    auto& world = app.get_subapp<WorldServer>();
 
     nlohmann::json jflags;
     for (const auto& [key, value] : this->flags) jflags[key] = any_to_json(value);
 
     return {{"id", id}, {"index", index},
-        {"pos", {{"offset", {world.offset.x.str(), world.offset.y.str(), world.offset.z.str()}},
+        {"pos", {{"offset", {"0", "0", "0"}},
                     {"value", {pos.x, pos.y, pos.z}}}},
         {"vel", {vel.x, vel.y, vel.z}}, {"persistent", persistent}, {"flags", jflags}};
 }
@@ -258,7 +246,7 @@ struct EntityListImpl : EntityList {
 
         for (auto& idx : to_remove) loaded_entities.erase(idx);
         if (cam_entity) {
-            auto* worldptr = dynamic_cast<World*>(parent);
+            auto* worldptr = dynamic_cast<WorldServer*>(parent);
             tassertmsgerr(worldptr, "EntityList is not a child of World", logic_error);
             auto& world = *worldptr;
 
@@ -331,7 +319,7 @@ struct EntityListImpl : EntityList {
         entity->spawn(*parent->application);
         loaded_entities[index] = std::move(entity);
     }
-} REGISTER_MOD(EntityListImpl, World);
+} REGISTER_MOD(EntityListImpl, WorldServer);
 
 struct EntityRegistryImpl : EntityRegistry {
     registryClass("minecraft:entity");

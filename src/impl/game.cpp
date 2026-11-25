@@ -11,7 +11,9 @@
 #include <cmrc/cmrc.hpp>
 #include <renderer/renderer.hpp>
 #include <base/fps_handler.hpp>
-#include <world/world.hpp>
+#include <world/client/main.hpp>
+#include <world/server/main.hpp>
+#include <threads/task.hpp>
 CMRC_DECLARE(assets);
 
 extern "C" const char* mc_client_location();
@@ -81,7 +83,9 @@ struct Game : Application {
 
         load_resources();
 
-        load_subapp("World");
+        load_subapp<WorldServer>();
+        load_subapp<ThreadPool>();
+        load_subapp<WorldClient>();
     }
 
     bool has_finished_loading = false;
