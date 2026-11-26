@@ -254,7 +254,7 @@ struct WorldGlRenderer : BaseRenderer {
         Camera camera;
         {
             std::scoped_lock lock(world->host->camera_mutex);
-            camera = world->host->camera;
+            camera = world->host->render_camera;
         }
 
         const auto size = renderer->window_size();
@@ -264,7 +264,7 @@ struct WorldGlRenderer : BaseRenderer {
         // wasting most of the depth range on the first few centimetres, so push it
         // out to 10 cm. The 24-bit depth buffer is requested in set_opengl_version().
         constexpr float near_plane = 0.1f;
-        constexpr float far_plane = 4096.0f;
+        constexpr float far_plane = 16384.0f;
         const auto projection = glm::perspective(glm::radians(70.0f), aspect, near_plane, far_plane);
         const auto direction = glm::vec3(
             std::cos(glm::radians(static_cast<float>(camera.pitch))) *

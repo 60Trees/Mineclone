@@ -13,6 +13,13 @@
 #include <cmath>
 #include <mutex>
 #include <utils/noise.hpp>
+#include <vector>
+#include <cmath>
+
+struct Octave {
+    BigInt scale;      // Wavelength in world units (e.g., 10,000,000 down to 100)
+    double amplitude;  // Height contribution in world units
+};
 
 namespace {
     constexpr RegistryUint air = 0;
@@ -29,13 +36,38 @@ struct WorldGenImpl : WorldGen {
     void quit() override {}
 
     BigInt get_height_at(const BigInt& x, const BigInt& z) override {
-        const auto xd = x.convert_to<double>();
-        const auto zd = z.convert_to<double>();
         if (x == 0 || z == 0) return 0;
 
-        const auto terrain_noise = noise.noise(xd / 150.0, 0.0, zd / 150.0);
-        const auto height = std::floor(32.0 + terrain_noise * 128.0);
-        return BigInt(height);
+        // Ordered from continental/planetary macro-scales down to fine detail
+        static const std::vector<Octave> octaves = {
+            {BigInt("100000000"), 5000000.0},  // Mega-continents / planetary curvature scale
+            {BigInt("10000000"), 800000.0},    // Massive mountain ranges
+            {BigInt("1000000"), 120000.0},     // Regional mountain chains
+            {BigInt("100000"), 20000.0},       // Valleys & ridges
+            {BigInt("15000"), 4000.0},         // Hills
+            {BigInt("1500"), 640.0},           // Local terrain variation
+            {BigInt("150"), 80.0},             // Boulders / rough ground
+            {BigInt("15"), 10.0}               // Micro detail
+        };
+
+        double total_height = 32.0;
+
+        for (const auto& octave : octaves) {
+            // Perform integer division + remainder in BigInt first to preserve precision
+            // at extreme distances (beyond 2^53) before converting to double
+            const BigInt ix = x / octave.scale;
+            const BigInt iz = z / octave.scale;
+            const double fx = (x % octave.scale).convert_to<double>() / octave.scale.convert_to<double>();
+            const double fz = (z % octave.scale).convert_to<double>() / octave.scale.convert_to<double>();
+
+            // Wrap integer grid coordinates if your noise generator struggles with huge doubles
+            const double nx = (ix % 65536).convert_to<double>() + fx;
+            const double nz = (iz % 65536).convert_to<double>() + fz;
+
+            total_height += noise.noise(nx, 0.0, nz) * octave.amplitude;
+        }
+
+        return BigInt(std::floor(total_height));
     }
 
     std::mutex speed_mutex;

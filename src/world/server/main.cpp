@@ -7,12 +7,18 @@
  * for generating chunks and sending them to the client.
  * This code can be swapped out for a singleplayer world
  * or something that sends packets to a server and stuff
+ *
+ * Currently, it is a bare-bones server that does not care
+ * about the block state. All it does is generate chunks and
+ * send them to the chunks.
  */
 
 #include "main.hpp"
 
 #include <world/server/worldgen/main.hpp>
 #include <triolib.hpp>
+
+std::vector<LodDescriptor> get_default_lod_descriptors();
 
 using namespace std;
 
@@ -28,8 +34,7 @@ struct TestServerImpl : WorldServer {
         // All LODs keep the same number of tiles per chunk; `scale` grows the chunk in
         // world units. LOD 1 therefore covers 2x2x2 = 8 LOD 0 chunks, LOD 2 covers 8
         // LOD 1 chunks, etc.
-        lod_descriptors = {{*default_chunk_size, 1}, {*default_chunk_size, 2}, {*default_chunk_size, 4},
-            {*default_chunk_size, 8}};
+        lod_descriptors = get_default_lod_descriptors();
         tassertmsg(is_valid(lod_descriptors), "Invalid LOD descriptor list");
         triolib::SubApp::init();
     }
