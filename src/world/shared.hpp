@@ -123,7 +123,7 @@ inline Tile::operator bool() const { return id != RegistryNull && id != 0; }
 constexpr static Tile TileNull{RegistryNull, 0};
 
 struct TileArr {
-    inline TileArr(size_t tile_count) : tile_count(tile_count), arr(std::make_unique<Tile[]>(tile_count)) {}
+    inline TileArr(size_t tile_count) : tile_count(tile_count), arr(nullptr) {}
     inline TileArr(const TileArr& other)
         : tile_count(other.tile_count), arr(std::make_unique<Tile[]>(other.tile_count)) {
         std::copy_n(other.arr.get(), tile_count, arr.get());
@@ -164,22 +164,67 @@ struct TileArr {
         return arr[index];
     }
 
-    Tile operator[](size_t index) const noexcept {
+    // Tile operator[](size_t index) const noexcept {
+    //     if (index >= tile_count) return TileNull;
+    //     return arr[index];
+    // }
+    // inline Tile& at(size_t index) noexcept {
+    //     static Tile TileNullRef = TileNull;
+    //     if (index >= tile_count) {
+    //         TileNullRef = TileNull;
+    //         return TileNullRef;
+    //     }
+    //     return arr[index];
+    // }
+
+    inline Tile at(size_t index) const noexcept {
         if (index >= tile_count) return TileNull;
         return arr[index];
     }
 
-    inline Tile& at(size_t index) noexcept {
-        static Tile TileNullRef = TileNull;
-        if (index >= tile_count) {
-            TileNullRef = TileNull;
-            return TileNullRef;
+    inline void write(size_t index, Tile tile) noexcept {
+        if (index >= tile_count) return;
+        if (!arr) {
+            if (tile == single_tile) return;
+            try_decompress();
         }
-        return arr[index];
+        arr[index] = tile;
     }
-    inline Tile at(size_t index) const noexcept {
-        if (index >= tile_count) return TileNull;
-        return arr[index];
+
+    /// If \ref arr is null, then the entire chunk will be treated as if
+    /// if was filled with this tile.
+    Tile single_tile = TileNull;
+
+    bool can_compress() const {
+        if (!arr) return false;
+        Tile first_tile = arr[0];
+        for (size_t i = 1; i < tile_count; ++i) {
+            if (arr[i] != first_tile) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool try_compress() {
+        if (!arr) return false;
+        Tile first_tile = arr[0];
+        for (size_t i = 1; i < tile_count; ++i) {
+            if (arr[i] != first_tile) {
+                return false;
+            }
+        }
+        arr = nullptr;
+        single_tile = first_tile;
+        return true;
+    }
+
+    void try_decompress() {
+        if (arr) return;
+        arr = std::make_unique<Tile[]>(tile_count);
+        for (size_t i = 0; i < tile_count; ++i) {
+            arr[i] = single_tile;
+        }
     }
 
     private:
@@ -203,20 +248,17 @@ struct Chunk {
 
     inline Chunk duplicate() { return Chunk{*this}; }
 
-    inline Tile& at(int x, int y, int z) noexcept { return tiles[index(x, y, z)]; }
-    inline Tile& at(glm::ivec3 pos) noexcept { return tiles[index(pos)]; }
-    inline Tile& at(size_t index) noexcept { return tiles[index]; }
-    inline Tile at(int x, int y, int z) const noexcept { return tiles[index(x, y, z)]; }
-    inline Tile at(glm::ivec3 pos) const noexcept { return tiles[index(pos)]; }
-    inline Tile at(size_t index) const noexcept { return tiles[index]; }
+    inline Tile at(int x, int y, int z) const noexcept { return tiles.at(index(x, y, z)); }
+    inline Tile at(glm::ivec3 pos) const noexcept { return tiles.at(index(pos)); }
+    inline Tile at(size_t index) const noexcept { return tiles.at(index); }
     /// @brief Get the width of the chunk in blocks.
     inline size_t size() const noexcept { return chunk_width; }
-    inline Tile& operator[](int x, int y, int z) noexcept { return at(x, y, z); }
-    inline Tile& operator[](glm::ivec3 pos) noexcept { return at(pos); }
-    inline Tile& operator[](size_t index) noexcept { return at(index); }
-    inline Tile operator[](int x, int y, int z) const noexcept { return at(x, y, z); }
-    inline Tile operator[](glm::ivec3 pos) const noexcept { return at(pos); }
-    inline Tile operator[](size_t index) const noexcept { return at(index); }
+    inline Tile& operator[](int x, int y, int z) noexcept { return tiles[index(x, y, z)]; }
+    inline Tile& operator[](glm::ivec3 pos) noexcept { return tiles[index(pos)]; }
+    inline Tile& operator[](size_t index) noexcept { return tiles[index]; }
+    inline void write(int x, int y, int z, Tile tile) noexcept { tiles.write(index(x, y, z), tile); }
+    inline void write(glm::ivec3 pos, Tile tile) noexcept { tiles.write(index(pos), tile); }
+    inline void write(size_t index, Tile tile) noexcept { tiles.write(index, tile); }
 
     inline const size_t index(int x, int y, int z) const noexcept {
         return x + y * chunk_width + z * chunk_width * chunk_width;
@@ -255,8 +297,14 @@ struct Chunk {
         inline bool operator!=(const Iterator& other) const { return !(*this == other); }
     };
 
-    inline Iterator begin() { return {this, 0}; }
-    inline Iterator end() { return {this, tiles.size()}; }
+    inline Iterator begin() {
+        tiles.try_decompress();
+        return {this, 0};
+    }
+    inline Iterator end() {
+        tiles.try_decompress();
+        return {this, tiles.size()};
+    }
     // </AI>
 
     std::shared_mutex mutex;

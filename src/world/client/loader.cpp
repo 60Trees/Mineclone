@@ -12,6 +12,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <deque>
 #include <mutex>
 #include <unordered_set>
 #include <vector>
@@ -24,12 +25,10 @@
 using namespace std;
 
 namespace {
-    /// Upper bound on how many chunks to generate in one loader tick. The real limit is
-    /// the time budget in \ref WorldLoader::tick_thread, so this just stops the scan from
-    /// running away when generation is unusually fast.
-    constexpr size_t load_batch = 64;
     /// How long the loader stays on its own work item before returning to the thread pool.
     constexpr chrono::milliseconds load_time_budget{8};
+    /// How eagerly the thread pool should pick up queued chunk generation work.
+    constexpr uint gen_priority = 6;
     /// How often an already-settled loader will scan for chunks that fell out of range.
     constexpr chrono::seconds cleanup_interval{1};
 
@@ -64,13 +63,16 @@ namespace {
                (dz == rx + 1 && dx <= rx && dy <= ry);
     }
 
-    /// @brief One candidate that still needs work once the batch scan is done.
-    struct CandidateWork {
+    /// @brief A chunk the loader has asked a generation worker to produce.
+    struct GenRequest {
         ChunkIndex key;
         bool render = false;
-        /// Already exists but must be promoted from secondary to primary.
-        bool promote = false;
-        /// The chunk to insert / the promoted chunk, filled in while the batch is processed.
+    };
+
+    /// @brief A generated chunk travelling back to the loader thread.
+    struct GenResult {
+        ChunkIndex key;
+        bool render = false;
         shared_ptr<Chunk> chunk;
     };
 
@@ -94,8 +96,9 @@ namespace {
         size_t primary_count = 0;
         /// @brief Next candidate that has not been inspected yet.
         size_t cursor = 0;
-        /// @brief Scratch buffer so a tick does not allocate.
-        std::vector<CandidateWork> batch;
+        /// @brief Keys for this LOD that have been dispatched but not applied yet.
+        /// Only touched by the loader thread, which is serialised by \ref loading_mutex.
+        std::unordered_set<ChunkIndex> in_flight;
     };
 }  // namespace
 
@@ -111,9 +114,29 @@ struct WorldLoader : WorldClient::ThreadedModule {
     vector<CandidateCache> candidate_cache;
     chrono::steady_clock::time_point last_cleanup = chrono::steady_clock::now();
 
+    /// @brief Chunk generation pipeline. The loader thread fills \ref gen_queue, any
+    /// pool thread consumes one request per \ref gen_tick_thread call, and the loader
+    /// drains \ref gen_completed into the world map. Keeping map writes on the loader
+    /// means candidates, promotions and settling stay single-threaded.
+    mutex gen_queue_mutex;
+    deque<GenRequest> gen_queue;
+    deque<GenResult> gen_completed;
+    /// @brief Queued + generating + completed-but-not-applied chunks. Loader-only.
+    unordered_set<ChunkIndex> gen_in_flight;
+    size_t max_outstanding = 64;
+    unique_ptr<WorkAdder> gen_work_adder;
+
     WorldMeshHandler* get_mesh_handler() {
         if (!mesh_handler) mesh_handler = &parent->getmod<WorldMeshHandler>();
         return mesh_handler;
+    }
+
+    void enqueue_mesh(const vector<ChunkIndex>& keys) {
+        if (keys.empty()) return;
+        auto* handler = get_mesh_handler();
+        lock_guard lock(handler->chunks_to_mesh_mutex);
+        for (const auto& key : keys)
+            if (handler->chunks_to_mesh_pending.insert(key).second) handler->chunks_to_mesh.push_back(key);
     }
 
     /// @brief Fill \p cache's candidate list for one camera position, in load order.
@@ -191,93 +214,149 @@ struct WorldLoader : WorldClient::ThreadedModule {
         cache.settled = false;
     }
 
-    /// @brief Walk forward from the cursor, collecting up to \p limit candidates that
-    /// still need work. Every existence check is made under a single shared lock, and
-    /// the cursor only moves forward, so each candidate is inspected once.
-    void collect_batch(CandidateCache& cache, size_t limit, vector<CandidateWork>& out) {
-        out.clear();
-        shared_lock lock(client->chunks_mutex);
-        while (cache.cursor < cache.candidates.size() && out.size() < limit) {
-            const size_t index = cache.cursor++;
-            const ChunkIndex& key = cache.candidates[index];
-            const bool render = index < cache.primary_count;
-
-            const auto it = client->chunks.find(key);
-            if (it != client->chunks.end() && it->second) {
-                // Already there. Primary chunks that exist but are not rendered are
-                // promoted; everything else needs nothing.
-                if (it->second->should_render || !render) continue;
-                out.push_back({key, render, true, nullptr});
-            } else {
-                out.push_back({key, render, false, nullptr});
-            }
+    /// @brief Runs on a pool thread: generate one chunk that the loader queued.
+    /// @detail Generation is the expensive part, so many of these can run at once. The
+    /// result is handed back through \ref gen_completed and applied by the loader thread,
+    /// keeping all world-map mutations single-threaded.
+    bool gen_tick_thread() {
+        GenRequest request;
+        {
+            lock_guard lock(gen_queue_mutex);
+            if (gen_queue.empty()) return false;
+            request = gen_queue.front();
+            gen_queue.pop_front();
         }
+
+        shared_ptr<Chunk> chunk;
+        try {
+            chunk = host->request_chunk(request.key);
+        } catch (const std::exception& e) {
+            console.err << "Chunk generation threw a " << get_dynamic_name(e) << "\n" << e.what();
+        }
+
+        {
+            lock_guard lock(gen_queue_mutex);
+            gen_completed.push_back({request.key, request.render, std::move(chunk)});
+        }
+        return true;
     }
 
-    /// @brief Generate / promote one batch of candidates.
-    /// @detail Generation runs outside the map lock, and the map is only locked once to
-    /// insert the whole batch and once to queue the resulting mesh work. The loader is
-    /// the only writer and ticks are serialised by \ref loading_mutex, so the state the
-    /// batch scan saw is still valid when it is applied.
-    void process_batch(CandidateCache& cache, size_t& budget, bool& worked) {
-        vector<CandidateWork>& batch = cache.batch;
-        collect_batch(cache, std::min(budget, load_batch), batch);
-
-        for (auto& item : batch) {
-            if (item.promote) continue;
-            item.chunk = client->host->request_chunk(item.key);
-            if (item.chunk) item.chunk->should_render = item.render;
+    /// @brief Apply chunks finished by generation workers to the world map and queue
+    /// their meshes. Called on the loader thread only.
+    bool drain_completions() {
+        deque<GenResult> results;
+        {
+            lock_guard lock(gen_queue_mutex);
+            results.swap(gen_completed);
         }
+        if (results.empty()) return false;
+
+        vector<ChunkIndex> to_mesh;
+        to_mesh.reserve(results.size() * (neighbor_offsets.size() + 1));
 
         {
             unique_lock lock(client->chunks_mutex);
-            for (auto& item : batch) {
-                if (item.promote) {
-                    const auto it = client->chunks.find(item.key);
-                    if (it != client->chunks.end() && it->second) {
-                        it->second->should_render = true;
-                        item.chunk = it->second;
-                    }
-                    continue;
-                }
-                if (!item.chunk) continue;
-                const auto [it, inserted] = client->chunks.try_emplace(item.key, item.chunk);
-                if (!inserted) {
-                    if (item.render && !it->second->should_render) it->second->should_render = true;
-                    item.chunk = it->second;
-                }
-            }
-        }
+            for (auto& result : results) {
+                gen_in_flight.erase(result.key);
 
-        // Queue the new / promoted chunks and the rendered neighbours whose border
-        // changed. One shared lock and one queue lock for the whole batch.
-        vector<ChunkIndex> to_mesh;
-        to_mesh.reserve(batch.size() * (neighbor_offsets.size() + 1));
-        {
-            shared_lock lock(client->chunks_mutex);
-            for (const auto& item : batch) {
-                if (!item.chunk) continue;
-                if (item.render) to_mesh.push_back(item.key);
+                bool primary = true;
+                if (result.key.lod < candidate_cache.size()) {
+                    auto& cache = candidate_cache[result.key.lod];
+                    cache.in_flight.erase(result.key);
+
+                    // Drop work for a region the camera has already left.
+                    if (cache.valid) {
+                        primary = in_primary(result.key.pos, cache.camera, cache.radius);
+                        const bool secondary =
+                            !primary && in_secondary(result.key.pos, cache.camera, cache.radius);
+                        if (!primary && !secondary) continue;
+                    }
+                }
+
+                if (!result.chunk) continue;
+                result.chunk->should_render = primary;
+
+                const auto [it, inserted] = client->chunks.try_emplace(result.key, result.chunk);
+                if (!inserted) {
+                    if (primary && !it->second->should_render) it->second->should_render = true;
+                    result.chunk = it->second;
+                }
+
+                if (primary) to_mesh.push_back(result.key);
                 for (const auto& offset : neighbor_offsets) {
-                    const ChunkIndex neighbor{item.key.pos + offset, item.key.lod};
+                    const ChunkIndex neighbor{result.key.pos + offset, result.key.lod};
                     const auto it = client->chunks.find(neighbor);
                     if (it != client->chunks.end() && it->second && it->second->should_render)
                         to_mesh.push_back(neighbor);
                 }
             }
         }
-        if (!to_mesh.empty()) {
-            auto* handler = get_mesh_handler();
-            lock_guard lock(handler->chunks_to_mesh_mutex);
-            for (const auto& key : to_mesh)
-                if (handler->chunks_to_mesh_pending.insert(key).second) handler->chunks_to_mesh.push_back(key);
+
+        enqueue_mesh(to_mesh);
+        return true;
+    }
+
+    /// @brief Walk forward from the cursor, queueing missing chunks for generation and
+    /// promoting existing shell chunks. Every existence check is made under one shared
+    /// lock, and the cursor only moves forward, so each candidate is inspected once.
+    /// @return True if this call queued or promoted anything.
+    bool dispatch_candidates(CandidateCache& cache) {
+        vector<ChunkIndex> promotions;
+        vector<GenRequest> requests;
+
+        {
+            shared_lock lock(client->chunks_mutex);
+            while (cache.cursor < cache.candidates.size()) {
+                const size_t index = cache.cursor;
+                const ChunkIndex& key = cache.candidates[index];
+                const bool render = index < cache.primary_count;
+
+                const auto it = client->chunks.find(key);
+                if (it != client->chunks.end() && it->second) {
+                    // Already there. Primary chunks that exist but are not rendered are
+                    // promoted; everything else needs nothing.
+                    cache.cursor++;
+                    if (render && !it->second->should_render) promotions.push_back(key);
+                    continue;
+                }
+                if (gen_in_flight.contains(key)) {
+                    cache.cursor++;
+                    continue;
+                }
+                if (gen_in_flight.size() >= max_outstanding) break;
+
+                cache.cursor++;
+                requests.push_back({key, render});
+                gen_in_flight.insert(key);
+                cache.in_flight.insert(key);
+            }
         }
 
-        size_t processed = 0;
-        for (const auto& item : batch)
-            if (item.chunk) processed++;
-        budget -= std::min(budget, processed);
-        worked = worked || processed > 0;
+        if (!requests.empty()) {
+            lock_guard lock(gen_queue_mutex);
+            for (const auto& request : requests) gen_queue.push_back(request);
+        }
+
+        vector<ChunkIndex> to_mesh;
+        if (!promotions.empty()) {
+            to_mesh.reserve(promotions.size() * (neighbor_offsets.size() + 1));
+            unique_lock lock(client->chunks_mutex);
+            for (const auto& key : promotions) {
+                const auto it = client->chunks.find(key);
+                if (it == client->chunks.end() || !it->second) continue;
+                it->second->should_render = true;
+                to_mesh.push_back(key);
+                for (const auto& offset : neighbor_offsets) {
+                    const ChunkIndex neighbor{key.pos + offset, key.lod};
+                    const auto it = client->chunks.find(neighbor);
+                    if (it != client->chunks.end() && it->second && it->second->should_render)
+                        to_mesh.push_back(neighbor);
+                }
+            }
+        }
+        enqueue_mesh(to_mesh);
+
+        return !requests.empty() || !promotions.empty();
     }
 
     /// Drops chunks that are no longer in range, and marks shell chunks as non-rendered
@@ -353,7 +432,9 @@ struct WorldLoader : WorldClient::ThreadedModule {
             if (had_cache) reconcile_chunks(lod, camera, radius);
             // Build the ordered candidate list for the new position. This is one pass
             // over the region (about 14 us at LOD 0) and only happens when the camera
-            // actually enters a new chunk.
+            // actually enters a new chunk. In-flight keys are kept so the new scan does
+            // not request them a second time; their completions are dropped if they are
+            // no longer in range.
             rebuild_candidates(cache, lod, camera, radius);
         }
 
@@ -368,13 +449,12 @@ struct WorldLoader : WorldClient::ThreadedModule {
             return false;
         }
 
-        size_t budget = load_batch;
-        bool worked = false;
-        process_batch(cache, budget, worked);
+        const bool worked = dispatch_candidates(cache);
 
-        // The cursor only stops short of the end when the budget ran out, so reaching
-        // the end means every candidate has been visited.
-        if (cache.cursor >= cache.candidates.size()) {
+        // The cursor only stops short of the end when the in-flight limit is reached.
+        // Settling also waits for every dispatched chunk to come back, so a chunk that
+        // was skipped because it was already generating is never forgotten.
+        if (cache.cursor >= cache.candidates.size() && cache.in_flight.empty()) {
             cache.settled = true;
             if (!cache.announced) {
                 cache.announced = true;
@@ -420,6 +500,18 @@ struct WorldLoader : WorldClient::ThreadedModule {
 
         candidate_cache.resize(client->lod_count);
         last_cleanup = chrono::steady_clock::now();
+
+        // Keep a backlog large enough that the generation workers do not run dry while
+        // the loader thread is asleep between ticks. Each pending chunk is at most one
+        // chunk of tiles, so this stays in the low tens of MiB.
+        auto& pool = parent->application->get_subapp<ThreadPool>();
+        max_outstanding = std::max<size_t>(64, static_cast<size_t>(pool.thread_count) * 8);
+
+        // A second work item on the same thread pool. Multiple pool threads may run it
+        // at once (the pool shares the work item's lock), so generation scales with the
+        // number of available cores instead of being serialised behind loading_mutex.
+        gen_work_adder = make_unique<WorkAdder>(
+            pool.main_list, [this](WorkList&) { return gen_tick_thread(); }, "ChunkGen", gen_priority);
     }
 
     bool tick_thread() override {
@@ -427,14 +519,18 @@ struct WorldLoader : WorldClient::ThreadedModule {
         if (!load_lock.owns_lock()) return false;
         shared_lock __(loader_options_mutex);
 
-        // Keep generating for a short slice instead of returning to the pool after every
-        // batch. This keeps the loader responsive to a moving camera without starving it.
+        // Apply whatever the generation workers finished since the last tick, then top up
+        // the queue. Keep going for a short slice instead of returning to the pool after
+        // every batch; this keeps the loader responsive to a moving camera without
+        // starving the other work items.
+        bool worked = drain_completions();
         const auto start = chrono::steady_clock::now();
-        bool worked = false;
         while (chrono::steady_clock::now() - start < load_time_budget) {
             if (!lod_priorities.try_random([&](LodLevel lod) { return try_lod(lod); })) break;
             worked = true;
         }
         return worked;
     }
+
+    void quit() override { gen_work_adder.reset(); }
 } REGISTER_MOD(WorldLoader, WorldClient);
