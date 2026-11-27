@@ -5,6 +5,14 @@
 #include <map>
 #include <string>
 
+/// @brief Bare-bones debug screen. Can add text to corners of the screen
+///
+/// e.g
+/// ```cpp
+/// auto& dbg_screen = application->get_subapp<DebugScreen>();
+/// dbg_screen.show("FPS", "FPS: " + std::to_string(fps));
+/// dbg_screen.show_at(DebugScreen::Corner::BottomRight, "Memory", "Memory: " + std::to_string(memory_usage));
+/// ```
 struct DebugScreen : triolib::SubApp {
     tClass;
 

@@ -88,6 +88,14 @@ struct Game : Application {
         load_subapp<WorldClient>();
     }
 
+    void quit() override {
+        // Stop the worker threads before tearing down the world modules. Their work items
+        // remove themselves from the pool on destruction, and doing that while the pool
+        // is still busy can make shutdown wait for a long time.
+        if (auto* pool = get_subapp_ptr<ThreadPool>()) pool->shutdown();
+        Application::quit();
+    }
+
     bool has_finished_loading = false;
     void loop() override { Application::loop(); }
 } REGISTER_APP(Game);

@@ -102,6 +102,7 @@ namespace triolib {
         using TriolibError::TriolibError;
     };
 
+    /// @brief Base class for all triolib objects
     struct BaseClass {
         virtual ~BaseClass() = default;
         virtual void init() = 0;
@@ -116,6 +117,8 @@ namespace triolib {
     struct SubApp;
     struct Application;
 
+    /// @brief Allows ordering of classes. Useful for deciding which module should be initialized first, or which module
+    /// should be looped first.
     template <typename T>
     struct Ordered {
         virtual bool order_init_does_go_before(const T* other) const { return false; }
@@ -126,11 +129,13 @@ namespace triolib {
         virtual double loop_order_priority() const { return 0.0; }
     };
 
+    /// @brief Main module class. Each module needs a parent SubApp
     struct Module : BaseClass, Ordered<Module> {
         tClass;
         SubApp* parent = nullptr;
     };
 
+    /// @brief Main application mod class. Each AppMod needs a parent Application
     struct AppModule : BaseClass, Ordered<AppModule> {
         tClass;
         Application* parent = nullptr;
@@ -174,7 +179,8 @@ namespace triolib {
             [](SubApp* candidate) { return dynamic_cast<Parent*>(candidate) != nullptr; });
     }
 
-    /// Running `SubApp::init()`, `SubApp::loop()` or `SubApp::quit()` will handle all SubApp mods.
+    /// @brief Main subapp class. Each subapp needs a parent Application
+    /// @note Running `SubApp::init()`, `SubApp::loop()` or `SubApp::quit()` will handle all SubApp mods.
     struct SubApp : BaseClass {
         tClass;
         Application* application = nullptr;
@@ -213,7 +219,9 @@ namespace triolib {
         }
     };
 
-    /// Running `Application::init()`, `Application::loop()` or `Application::quit()` will handle all Application mods.
+    /// @brief Main application class. The big code that runs everything.
+    /// @note Running `Application::init()`, `Application::loop()` or `Application::quit()` will handle all Application
+    /// mods.
     struct Application : BaseClass {
         tClass;
 

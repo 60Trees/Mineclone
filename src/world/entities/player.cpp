@@ -9,6 +9,7 @@
 using namespace std;
 using namespace triolib;
 
+/// @brief Player entity
 struct Player : Entity {
     entityClass("minecraft:player", Player);
 

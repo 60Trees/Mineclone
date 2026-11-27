@@ -19,6 +19,11 @@ struct Bubble {
     std::string owner;
 };
 
+struct BlockCoord {
+    BigPos offset;
+    glm::ivec3 local;
+};
+
 struct WorldServer : triolib::SubApp {
     tClass;
 
@@ -32,4 +37,15 @@ struct WorldServer : triolib::SubApp {
     Camera camera;
     std::mutex camera_mutex;
     Bubble bubble;
+};
+
+/// @brief Global API for editing blocks
+struct WorldEditor {
+    WorldEditor(WorldServer& server) : server(server) {}
+    virtual ~WorldEditor() = default;
+
+    WorldServer& server;
+
+    virtual void set_tile_at(const BlockCoord& coord, Tile tile) = 0;
+    virtual Tile get_tile_at(const BlockCoord& coord) = 0;
 };

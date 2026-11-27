@@ -10,6 +10,8 @@
 #include <cstddef>
 
 namespace utils {
+    /// @brief A weighted set of values, allowing for random selection based on weights.
+    /// Useful for thread pools or other resource allocation.
     template <typename T>
     class weighted_set {
         public:

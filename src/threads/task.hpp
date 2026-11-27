@@ -12,6 +12,7 @@
 
 struct WorkList;
 
+/// @brief A single work item. It is a function that will be called on a thread pool.
 struct Work {
     using WorkFunc = std::function<bool(WorkList& list)>;
 
@@ -41,6 +42,7 @@ struct MutexWork : Work {
     std::shared_mutex workmutex;
 };
 
+/// @brief A list of work items that can be executed on a thread pool, with priority.
 struct WorkList {
     std::shared_mutex listmutex;
     std::map<std::string, std::unique_ptr<MutexWork>> works;
@@ -94,6 +96,7 @@ struct WorkList {
     void remove_work(std::string_view name);
 };
 
+/// @brief Uses RAII to add and remove work from a specified work list.
 struct WorkAdder {
     WorkList& main_list;
     std::string name;
@@ -102,11 +105,10 @@ struct WorkAdder {
         main_list.add_work(work, name, priority);
     }
 
-    ~WorkAdder() {
-        main_list.remove_work(name);
-    }
+    ~WorkAdder() { main_list.remove_work(name); }
 };
 
+/// @brief The main thread pool, with a main work list.
 struct ThreadPool : triolib::SubApp {
     tClass;
 

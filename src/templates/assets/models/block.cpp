@@ -107,8 +107,8 @@ namespace assets::models {
             return result;
         }
 
-        Block::Display::Position parse_display_position(const json& value) {
-            Block::Display::Position result;
+        block::Display::Position parse_display_position(const json& value) {
+            block::Display::Position result;
 
             if (value.contains("rotation")) {
                 result.rotation = vec3_from_json(value.at("rotation"), result.rotation);
@@ -133,14 +133,14 @@ namespace assets::models {
             return result;
         }
 
-        void parse_display_context(const json& display, const char* key, Block::Display::Position& destination) {
+        void parse_display_context(const json& display, const char* key, block::Display::Position& destination) {
             if (display.contains(key)) {
                 destination = parse_display_position(display.at(key));
             }
         }
 
-        Block::Display parse_display(const json& value) {
-            Block::Display result;
+        block::Display parse_display(const json& value) {
+            block::Display result;
 
             parse_display_context(value, "thirdperson_righthand", result.thirdperson_righthand);
             parse_display_context(value, "thirdperson_lefthand", result.thirdperson_lefthand);
@@ -155,8 +155,8 @@ namespace assets::models {
             return result;
         }
 
-        Block::Textures parse_textures(const json& value) {
-            Block::Textures result;
+        block::Textures parse_textures(const json& value) {
+            block::Textures result;
 
             for (auto it = value.begin(); it != value.end(); ++it) {
                 const std::string& name = it.key();
@@ -168,7 +168,7 @@ namespace assets::models {
                 }
 
                 if (texture.is_object()) {
-                    Block::Textures::TextureVariable variable;
+                    block::Textures::TextureVariable variable;
 
                     if (!texture.contains("sprite")) {
                         throw std::runtime_error("Texture variable '" + name + "' is missing its sprite property");
@@ -188,8 +188,8 @@ namespace assets::models {
             return result;
         }
 
-        Block::Element::Face parse_face(const json& value) {
-            Block::Element::Face result;
+        block::Element::Face parse_face(const json& value) {
+            block::Element::Face result;
 
             if (value.contains("uv")) {
                 const auto& uv = value.at("uv");
@@ -214,8 +214,8 @@ namespace assets::models {
             return result;
         }
 
-        Block::Element parse_element(const json& value) {
-            Block::Element result;
+        block::Element parse_element(const json& value) {
+            block::Element result;
 
             if (value.contains("from")) {
                 result.from = vec3_from_json(value.at("from"), result.from);
@@ -268,8 +268,8 @@ namespace assets::models {
             return result;
         }
 
-        Block parse_resolved_model(const json& value) {
-            Block result;
+        block parse_resolved_model(const json& value) {
+            block result;
 
             result.parent = value.value("parent", std::string{});
             result.ambientocclusion = value.value("ambientocclusion", true);
@@ -300,7 +300,7 @@ namespace assets::models {
         }
     }  // namespace
 
-    Block get_block_model_path(triolib::Application* app, std::string_view path) {
+    block get_block_model_path(triolib::Application* app, std::string_view path) {
         if (app == nullptr) {
             throw std::invalid_argument("get_block_model_path received a null application");
         }
@@ -317,7 +317,7 @@ namespace assets::models {
         return parse_resolved_model(resolved);
     }
 
-    Block get_block_model_id(triolib::Application* app, std::string_view resid) {
+    block get_block_model_id(triolib::Application* app, std::string_view resid) {
         return get_block_model_path(app, model_path_from_id(resid));
     }
 

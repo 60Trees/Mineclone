@@ -29,6 +29,22 @@ CMRC_DECLARE(assets);
 
 using namespace std;
 
+/// @brief Formats an identifier.
+/// @param id The identifier to format. For example: "minecraft:stone"
+/// @param format The format string. For example: "assets/{0}/textures/block/{1}.png"
+/// Remember: `{0}` will be replaced with the namespace, and `{1}` will be replaced with the path.
+/// `std::format` rules apply.
+/// @return The formatted identifier. For example: "assets/minecraft/textures/block/stone.png"
+std::string ResourceHandler::format_identifier(std::string_view id, std::string_view format) {
+    const auto colon = id.find(':');
+    if (colon == std::string_view::npos) throw std::runtime_error("Invalid identifier: " + std::string(id));
+
+    std::string ns = std::string{id.substr(0, colon)};
+    std::string path = std::string{id.substr(colon + 1)};
+
+    return std::vformat(format, std::make_format_args(ns, path));
+}
+
 struct ResourceHandlerImpl : ResourceHandler {
     tImplClass(ResourceHandler);
 

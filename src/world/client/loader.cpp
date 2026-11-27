@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <deque>
@@ -125,6 +126,9 @@ struct WorldLoader : WorldClient::ThreadedModule {
     unordered_set<ChunkIndex> gen_in_flight;
     size_t max_outstanding = 64;
     unique_ptr<WorkAdder> gen_work_adder;
+    /// @brief Makes quitting cheap: workers stop claiming new chunks before the work
+    /// item is removed, instead of continuously taking the work-list lock.
+    atomic<bool> gen_stopping{false};
 
     WorldMeshHandler* get_mesh_handler() {
         if (!mesh_handler) mesh_handler = &parent->getmod<WorldMeshHandler>();
@@ -219,6 +223,8 @@ struct WorldLoader : WorldClient::ThreadedModule {
     /// result is handed back through \ref gen_completed and applied by the loader thread,
     /// keeping all world-map mutations single-threaded.
     bool gen_tick_thread() {
+        if (gen_stopping.load(memory_order_relaxed)) return false;
+
         GenRequest request;
         {
             lock_guard lock(gen_queue_mutex);
@@ -294,6 +300,33 @@ struct WorldLoader : WorldClient::ThreadedModule {
 
         enqueue_mesh(to_mesh);
         return true;
+    }
+
+    /// @brief Drop queued generation requests for one LOD that the new camera position
+    /// no longer needs.
+    /// @detail A request that a worker already popped cannot be stopped; its result is
+    /// discarded by \ref drain_completions if it is out of range. Cancelling the rest
+    /// immediately frees queue slots so the new position can start generating right away
+    /// instead of waiting for work around the old position to drain.
+    void cancel_queued(CandidateCache& cache, LodLevel lod, const ChunkPos& camera, Pair<size_t> radius) {
+        vector<ChunkIndex> cancelled;
+        {
+            lock_guard lock(gen_queue_mutex);
+            for (auto it = gen_queue.begin(); it != gen_queue.end();) {
+                if (it->key.lod == lod && !in_primary(it->key.pos, camera, radius) &&
+                    !in_secondary(it->key.pos, camera, radius)) {
+                    cancelled.push_back(it->key);
+                    it = gen_queue.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        for (const auto& key : cancelled) {
+            gen_in_flight.erase(key);
+            cache.in_flight.erase(key);
+        }
     }
 
     /// @brief Walk forward from the cursor, queueing missing chunks for generation and
@@ -427,9 +460,13 @@ struct WorldLoader : WorldClient::ThreadedModule {
             cache.valid = true;
             cache.camera = camera;
             cache.radius = radius;
-            // Drop chunks left behind by the old position immediately. This is what
-            // makes a teleport stop loading (and rendering) around the old spot.
-            if (had_cache) reconcile_chunks(lod, camera, radius);
+            // Drop chunks and queued generation work left behind by the old position
+            // immediately. This is what makes a teleport stop loading (and rendering)
+            // around the old spot.
+            if (had_cache) {
+                reconcile_chunks(lod, camera, radius);
+                cancel_queued(cache, lod, camera, radius);
+            }
             // Build the ordered candidate list for the new position. This is one pass
             // over the region (about 14 us at LOD 0) and only happens when the camera
             // actually enters a new chunk. In-flight keys are kept so the new scan does
@@ -532,5 +569,8 @@ struct WorldLoader : WorldClient::ThreadedModule {
         return worked;
     }
 
-    void quit() override { gen_work_adder.reset(); }
+    void quit() override {
+        gen_stopping.store(true, memory_order_relaxed);
+        gen_work_adder.reset();
+    }
 } REGISTER_MOD(WorldLoader, WorldClient);

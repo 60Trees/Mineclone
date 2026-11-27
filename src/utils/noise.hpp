@@ -10,6 +10,7 @@ namespace noise {
 
     extern Seed (*get_random_seed)();
 
+    /// @brief An octave of perlin noise
     struct Octave {
         double frequency = 1.0;
         double amplitude = 1.0;
@@ -25,6 +26,7 @@ namespace noise {
 
     extern std::unique_ptr<PerlinBaseImpl> (*create_perlin_impl)(uint64_t seed);
 
+    /// @brief A Perlin noise generator.
     struct Perlin final {
         inline Perlin(uint64_t seed = get_random_seed()) : impl(create_perlin_impl(seed)) {}
         inline double noise(double x, double y, double z) const { return impl->noise(x, y, z); }

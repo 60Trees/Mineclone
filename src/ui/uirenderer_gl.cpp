@@ -1,7 +1,6 @@
 #include <opengl.hpp>
 #include <base/resources.hpp>
 #include <renderer/renderer.hpp>
-#include <structures/assets/models/block.hpp>
 #include <ui/debug_screen.hpp>
 
 #include <algorithm>
@@ -24,9 +23,7 @@ struct DebugScreenImpl : DebugScreen {
     void loop() override { SubApp::loop(); }
     void quit() override { SubApp::quit(); }
 
-    void show(string key, string value) override {
-        show_at(Corner::TopLeft, std::move(key), std::move(value));
-    }
+    void show(string key, string value) override { show_at(Corner::TopLeft, std::move(key), std::move(value)); }
     void show_at(Corner corner, string key, string value) override {
         lock_guard lock(values_mutex);
         if (value.empty()) {
@@ -166,84 +163,210 @@ struct UI_RendererGl : BaseRenderer {
         const float shadow_offset = gui_scale;
         const float margin = 8.0f;
         for (const auto corner : {DebugScreen::Corner::TopLeft, DebugScreen::Corner::TopRight,
-             DebugScreen::Corner::BottomLeft, DebugScreen::Corner::BottomRight}) {
-        const auto entries = debug_screen->entries(corner);
+                 DebugScreen::Corner::BottomLeft, DebugScreen::Corner::BottomRight}) {
+            const auto entries = debug_screen->entries(corner);
 
-        float block_width = 0.0f;
-        float block_height = 0.0f;
-        for (const auto& [key, value] : entries) {
-            const string text = key + ": " + value;
-            size_t line_length = 0;
-            size_t max_line_length = 0;
-            size_t line_count = 1;
-            for (const char character : text) {
-                if (character == '\n') {
-                    max_line_length = std::max(max_line_length, line_length);
-                    line_length = 0;
-                    ++line_count;
-                } else {
-                    ++line_length;
+            float block_width = 0.0f;
+            float block_height = 0.0f;
+            for (const auto& [key, value] : entries) {
+                const string text = key + ": " + value;
+                size_t line_length = 0;
+                size_t max_line_length = 0;
+                size_t line_count = 1;
+                for (const char character : text) {
+                    if (character == '\n') {
+                        max_line_length = std::max(max_line_length, line_length);
+                        line_length = 0;
+                        ++line_count;
+                    } else {
+                        ++line_length;
+                    }
                 }
+                max_line_length = std::max(max_line_length, line_length);
+                block_width = std::max(block_width, static_cast<float>(max_line_length) * glyph_width);
+                block_height += static_cast<float>(line_count) * glyph_height;
             }
-            max_line_length = std::max(max_line_length, line_length);
-            block_width = std::max(block_width, static_cast<float>(max_line_length) * glyph_width);
-            block_height += static_cast<float>(line_count) * glyph_height;
-        }
 
-        const auto window_size = renderer->window_size();
-        const float screen_width = static_cast<float>(window_size.x);
-        const float screen_height = static_cast<float>(window_size.y);
-        const bool right_aligned =
-            corner == DebugScreen::Corner::TopRight || corner == DebugScreen::Corner::BottomRight;
-        const bool bottom_aligned =
-            corner == DebugScreen::Corner::BottomLeft || corner == DebugScreen::Corner::BottomRight;
-        const float left = right_aligned ? screen_width - margin - block_width : margin;
-        float y = bottom_aligned ? screen_height - margin - block_height : margin;
+            const auto window_size = renderer->window_size();
+            const float screen_width = static_cast<float>(window_size.x);
+            const float screen_height = static_cast<float>(window_size.y);
+            const bool right_aligned =
+                corner == DebugScreen::Corner::TopRight || corner == DebugScreen::Corner::BottomRight;
+            const bool bottom_aligned =
+                corner == DebugScreen::Corner::BottomLeft || corner == DebugScreen::Corner::BottomRight;
+            const float left = right_aligned ? screen_width - margin - block_width : margin;
+            float y = bottom_aligned ? screen_height - margin - block_height : margin;
 
-        for (const auto& [key, value] : entries) {
-            const string text = key + ": " + value;
-            float x = left;
-            for (const char character : text) {
-                if (character == '\n') {
-                    x = left;
-                    y += glyph_height;
-                    continue;
+            for (const auto& [key, value] : entries) {
+                const string text = key + ": " + value;
+                float x = left;
+                for (const char character : text) {
+                    if (character == '\n') {
+                        x = left;
+                        y += glyph_height;
+                        continue;
+                    }
+                    const auto glyph = static_cast<unsigned char>(character);
+                    const float u0 = static_cast<float>(glyph % 16) / 16.0f;
+                    const float v0 = static_cast<float>(glyph >> 4) / 16.0f;
+                    const float u1 = u0 + 1.0f / 16.0f;
+                    const float v1 = v0 + 1.0f / 16.0f;
+                    const float x1 = x + glyph_width;
+                    const float y1 = y + glyph_height;
+                    background_vertices.insert(background_vertices.end(), {
+                                                                              x,
+                                                                              y,
+                                                                              0.0f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.0f,
+                                                                              0.0f,
+                                                                              x1,
+                                                                              y,
+                                                                              0.0f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.0f,
+                                                                              0.0f,
+                                                                              x1,
+                                                                              y1,
+                                                                              0.0f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.0f,
+                                                                              0.0f,
+                                                                              x,
+                                                                              y,
+                                                                              0.0f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.0f,
+                                                                              0.0f,
+                                                                              x1,
+                                                                              y1,
+                                                                              0.0f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.0f,
+                                                                              0.0f,
+                                                                              x,
+                                                                              y1,
+                                                                              0.0f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.3f,
+                                                                              0.0f,
+                                                                              0.0f,
+                                                                          });
+                    shadow_vertices.insert(shadow_vertices.end(), {
+                                                                      x + shadow_offset,
+                                                                      y + shadow_offset,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      u0,
+                                                                      v0,
+                                                                      x1 + shadow_offset,
+                                                                      y + shadow_offset,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      u1,
+                                                                      v0,
+                                                                      x1 + shadow_offset,
+                                                                      y1 + shadow_offset,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      u1,
+                                                                      v1,
+                                                                      x + shadow_offset,
+                                                                      y + shadow_offset,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      u0,
+                                                                      v0,
+                                                                      x1 + shadow_offset,
+                                                                      y1 + shadow_offset,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      u1,
+                                                                      v1,
+                                                                      x + shadow_offset,
+                                                                      y1 + shadow_offset,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      0.0f,
+                                                                      u0,
+                                                                      v1,
+                                                                  });
+                    text_vertices.insert(text_vertices.end(), {
+                                                                  x,
+                                                                  y,
+                                                                  0.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  u0,
+                                                                  v0,
+                                                                  x1,
+                                                                  y,
+                                                                  0.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  u1,
+                                                                  v0,
+                                                                  x1,
+                                                                  y1,
+                                                                  0.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  u1,
+                                                                  v1,
+                                                                  x,
+                                                                  y,
+                                                                  0.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  u0,
+                                                                  v0,
+                                                                  x1,
+                                                                  y1,
+                                                                  0.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  u1,
+                                                                  v1,
+                                                                  x,
+                                                                  y1,
+                                                                  0.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  1.0f,
+                                                                  u0,
+                                                                  v1,
+                                                              });
+                    x = x1;
                 }
-                const auto glyph = static_cast<unsigned char>(character);
-                const float u0 = static_cast<float>(glyph % 16) / 16.0f;
-                const float v0 = static_cast<float>(glyph >> 4) / 16.0f;
-                const float u1 = u0 + 1.0f / 16.0f;
-                const float v1 = v0 + 1.0f / 16.0f;
-                const float x1 = x + glyph_width;
-                const float y1 = y + glyph_height;
-                background_vertices.insert(background_vertices.end(), {
-                    x, y, 0.0f, 0.3f, 0.3f, 0.3f, 0.0f, 0.0f,
-                    x1, y, 0.0f, 0.3f, 0.3f, 0.3f, 0.0f, 0.0f,
-                    x1, y1, 0.0f, 0.3f, 0.3f, 0.3f, 0.0f, 0.0f,
-                    x, y, 0.0f, 0.3f, 0.3f, 0.3f, 0.0f, 0.0f,
-                    x1, y1, 0.0f, 0.3f, 0.3f, 0.3f, 0.0f, 0.0f,
-                    x, y1, 0.0f, 0.3f, 0.3f, 0.3f, 0.0f, 0.0f,
-                });
-                shadow_vertices.insert(shadow_vertices.end(), {
-                    x + shadow_offset, y + shadow_offset, 0.0f, 0.0f, 0.0f, 0.0f, u0, v0,
-                    x1 + shadow_offset, y + shadow_offset, 0.0f, 0.0f, 0.0f, 0.0f, u1, v0,
-                    x1 + shadow_offset, y1 + shadow_offset, 0.0f, 0.0f, 0.0f, 0.0f, u1, v1,
-                    x + shadow_offset, y + shadow_offset, 0.0f, 0.0f, 0.0f, 0.0f, u0, v0,
-                    x1 + shadow_offset, y1 + shadow_offset, 0.0f, 0.0f, 0.0f, 0.0f, u1, v1,
-                    x + shadow_offset, y1 + shadow_offset, 0.0f, 0.0f, 0.0f, 0.0f, u0, v1,
-                });
-                text_vertices.insert(text_vertices.end(), {
-                    x, y, 0.0f, 1.0f, 1.0f, 1.0f, u0, v0,
-                    x1, y, 0.0f, 1.0f, 1.0f, 1.0f, u1, v0,
-                    x1, y1, 0.0f, 1.0f, 1.0f, 1.0f, u1, v1,
-                    x, y, 0.0f, 1.0f, 1.0f, 1.0f, u0, v0,
-                    x1, y1, 0.0f, 1.0f, 1.0f, 1.0f, u1, v1,
-                    x, y1, 0.0f, 1.0f, 1.0f, 1.0f, u0, v1,
-                });
-                x = x1;
+                y += glyph_height;
             }
-            y += glyph_height;
-        }
         }
 
         glDisable(GL_DEPTH_TEST);

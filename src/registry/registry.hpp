@@ -66,6 +66,8 @@ struct RegistryEntry {
      */
     Identifier resid;
 
+    virtual IdentifierView get_resid() const { return resid; }
+
     /**
      * @brief A number associated with the resource. E.g grass = 0, dirt = 1, etc
      * @detail
@@ -74,6 +76,8 @@ struct RegistryEntry {
      * @note Do not touch plz
      */
     RegistryUint resindex;
+
+    virtual RegistryUint get_residx() const { return resindex; }
 };
 
 std::map<RawRegistryEntry, std::unique_ptr<RegistryEntry> (*)()>& registry_entry_constructors();

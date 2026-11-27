@@ -16,8 +16,21 @@
 #include <vector>
 CMRC_DECLARE(assets);
 
+/// @brief Main handler for game files, such as images, JSONs,
+/// sounds, etc. Can load the from a bunch of sources, from
+/// zips on the filesystem to embedded files or from stuff
+/// loaded in RAM already.
 struct ResourceHandler : triolib::AppModule {
     tClass;
+
+    /// @brief Formats an identifier.
+    /// @param id The identifier to format. For example: "minecraft:stone"
+    /// @param format The format string. For example: "assets/{0}/textures/block/{1}.png"
+    /// Remember: `{0}` will be replaced with the namespace, and `{1}` will be replaced with the path.
+    /// `std::format` rules apply.
+    /// @return The formatted identifier. For example: "assets/minecraft/textures/block/stone.png"
+    static std::string format_identifier(std::string_view id, std::string_view format);
+
     std::atomic_bool has_loaded = false;
     std::atomic_bool has_started_loading = false;
 

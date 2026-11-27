@@ -15,7 +15,8 @@
 #include "triolib.hpp"
 
 namespace assets::models {
-    struct Block {
+    /// @brief A structured JSON template for `assets/{namespace}/models/block/{block}.json`
+    struct block {
         std::string parent;
         bool ambientocclusion = true;
 
@@ -43,10 +44,7 @@ namespace assets::models {
                 bool force_translucent = false;
             };
 
-            std::map<
-                std::string,
-                std::variant<std::string, TextureVariable>
-            > texture_variables;
+            std::map<std::string, std::variant<std::string, TextureVariable> > texture_variables;
         } textures;
 
         struct Element {
@@ -81,22 +79,13 @@ namespace assets::models {
         std::vector<Element> elements;
     };
 
-    inline nlohmann::json get_json_from_path(
-        triolib::Application* app,
-        std::string_view path
-    ) {
+    inline nlohmann::json get_json_from_path(triolib::Application* app, std::string_view path) {
         return app->getmod<ResourceHandler>().resources.get(path).json();
     }
 
     // e.g. minecraft:block/stone
-    Block get_block_model_id(
-        triolib::Application* app,
-        std::string_view resid
-    );
+    block get_block_model_id(triolib::Application* app, std::string_view resid);
 
     // e.g. assets/minecraft/models/block/stone.json
-    Block get_block_model_path(
-        triolib::Application* app,
-        std::string_view path
-    );
-}
+    block get_block_model_path(triolib::Application* app, std::string_view path);
+}  // namespace assets::models

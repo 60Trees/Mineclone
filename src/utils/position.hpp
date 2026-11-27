@@ -4,7 +4,8 @@
 
 using BigInt = boost::multiprecision::cpp_int;
 
-struct Position {
+/// @TODO: remove shitty ahh code
+struct [[deprecated]] Position {
     float x = 0, y = 0, z = 0;
 
     static BigInt snap_distance;
@@ -66,4 +67,7 @@ struct BigPos {
 };
 
 template <typename T>
-struct Pair { T x; T y; };
+struct Pair {
+    T x;
+    T y;
+};

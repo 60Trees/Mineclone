@@ -19,6 +19,7 @@ namespace {
     }  // namespace ansi
 }  // namespace
 
+/// @brief Prettify a JSON value with colour and indentation.
 std::string prettify_json(const nlohmann::json& j, int indent, int line_limit, int chars_for_single_line_object) {
     using json = nlohmann::json;
 

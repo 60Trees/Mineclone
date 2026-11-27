@@ -30,6 +30,7 @@ struct EntityControls {
     constexpr static InputState null_input_state = {};
 };
 
+/// @brief The base class for all entities in the world.
 struct Entity {
     virtual ~Entity() = default;
 
@@ -138,6 +139,7 @@ struct EntityRegEntry : RegistryEntry {
     virtual std::unique_ptr<Entity> spawn(const nlohmann::json& data, triolib::Application& app) = 0;
 };
 
+/// @brief The main entity list.
 struct EntityList : triolib::Module {
     /**
      * @detail
