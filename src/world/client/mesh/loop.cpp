@@ -10,6 +10,7 @@
 
 #include "main.hpp"
 #include "triolib.hpp"
+#include <chrono>
 #include <mutex>
 #include <optional>
 #include <world/shared.hpp>
@@ -81,11 +82,20 @@ struct WorldMeshHandlerImpl : WorldMeshHandler {
     // locks: chunk_meshes_mutex (unique)
     void mesh_chunk(
         ChunkIndex work, const shared_ptr<Chunk>& own_chunk, const array<shared_ptr<Chunk>, 6>& neighbors) {
+        const auto start = chrono::steady_clock::now();
         ChunkMesh result = mesher->mesh_chunk(work, own_chunk, neighbors);
+        const auto elapsed = chrono::duration<double>(chrono::steady_clock::now() - start).count();
 
-        unique_lock lock(chunk_meshes_mutex);
-        result.revision = ++mesh_revision;
-        chunk_meshes[work] = std::move(result);
+        uint64_t revision = 0;
+        {
+            unique_lock lock(chunk_meshes_mutex);
+            revision = ++mesh_revision;
+            result.revision = revision;
+            chunk_meshes[work] = std::move(result);
+        }
+
+        client->stats.meshed_per_second.add();
+        client->stats.record_mesh(work, elapsed, revision);
     }
 
     // Pops the next chunk that still exists off the queue.
@@ -99,8 +109,12 @@ struct WorldMeshHandlerImpl : WorldMeshHandler {
             chunks_to_mesh_pending.erase(candidate);
 
             const auto it = client->chunks.find(candidate);
-            if (it != client->chunks.end() && it->second) return candidate;
+            if (it != client->chunks.end() && it->second) {
+                client->stats.mesh_queue.store(chunks_to_mesh.size());
+                return candidate;
+            }
         }
+        client->stats.mesh_queue.store(0);
         return nullopt;
     }
 } REGISTER_MOD(WorldMeshHandlerImpl, WorldClient);

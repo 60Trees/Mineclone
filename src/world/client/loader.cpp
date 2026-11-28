@@ -141,6 +141,7 @@ struct WorldLoader : WorldClient::ThreadedModule {
         lock_guard lock(handler->chunks_to_mesh_mutex);
         for (const auto& key : keys)
             if (handler->chunks_to_mesh_pending.insert(key).second) handler->chunks_to_mesh.push_back(key);
+        client->stats.mesh_queue.store(handler->chunks_to_mesh.size());
     }
 
     /// @brief Fill \p cache's candidate list for one camera position, in load order.
@@ -231,14 +232,19 @@ struct WorldLoader : WorldClient::ThreadedModule {
             if (gen_queue.empty()) return false;
             request = gen_queue.front();
             gen_queue.pop_front();
+            client->stats.generation_queue.store(gen_queue.size());
         }
 
         shared_ptr<Chunk> chunk;
+        const auto gen_start = chrono::steady_clock::now();
         try {
             chunk = host->request_chunk(request.key);
         } catch (const std::exception& e) {
             console.err << "Chunk generation threw a " << get_dynamic_name(e) << "\n" << e.what();
         }
+        client->stats.generation_time.add(
+            chrono::duration<double>(chrono::steady_clock::now() - gen_start).count());
+        client->stats.generated_per_second.add();
 
         {
             lock_guard lock(gen_queue_mutex);
@@ -281,6 +287,7 @@ struct WorldLoader : WorldClient::ThreadedModule {
 
                 if (!result.chunk) continue;
                 result.chunk->should_render = primary;
+                client->stats.loaded_per_second.add();
 
                 const auto [it, inserted] = client->chunks.try_emplace(result.key, result.chunk);
                 if (!inserted) {
@@ -321,6 +328,7 @@ struct WorldLoader : WorldClient::ThreadedModule {
                     ++it;
                 }
             }
+            client->stats.generation_queue.store(gen_queue.size());
         }
 
         for (const auto& key : cancelled) {
@@ -368,7 +376,10 @@ struct WorldLoader : WorldClient::ThreadedModule {
         if (!requests.empty()) {
             lock_guard lock(gen_queue_mutex);
             for (const auto& request : requests) gen_queue.push_back(request);
+            client->stats.generation_queue.store(gen_queue.size());
+            client->stats.picked_per_second.add(requests.size());
         }
+        if (!promotions.empty()) client->stats.picked_per_second.add(promotions.size());
 
         vector<ChunkIndex> to_mesh;
         if (!promotions.empty()) {
@@ -563,7 +574,15 @@ struct WorldLoader : WorldClient::ThreadedModule {
         bool worked = drain_completions();
         const auto start = chrono::steady_clock::now();
         while (chrono::steady_clock::now() - start < load_time_budget) {
-            if (!lod_priorities.try_random([&](LodLevel lod) { return try_lod(lod); })) break;
+            const bool picked = lod_priorities.try_random([&](LodLevel lod) {
+                const auto pick_start = chrono::steady_clock::now();
+                const bool result = try_lod(lod);
+                if (result)
+                    client->stats.pick_time.add(
+                        chrono::duration<double>(chrono::steady_clock::now() - pick_start).count());
+                return result;
+            });
+            if (!picked) break;
             worked = true;
         }
         return worked;

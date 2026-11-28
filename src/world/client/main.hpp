@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <world/client/stats.hpp>
 #include <world/shared.hpp>
 #include <world/server/main.hpp>
 #include <threads/task.hpp>
@@ -49,6 +50,9 @@ struct WorldClient : triolib::SubApp {
     std::vector<Pair<size_t>> lod_view_distance;
 
     WorldServer* host = nullptr;
+
+    /// @brief Benchmarks for the chunk pipeline. See \ref ChunkLoadStats.
+    ChunkLoadStats stats;
 
     struct Module : triolib::Module {
         tClass;
