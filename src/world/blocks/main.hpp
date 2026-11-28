@@ -19,6 +19,12 @@
  *
  * @note Please extend virtually, e.g `struct MyBlock : virtual Block { ... }` to avoid diamond inheritance issues.
  */
+struct BlockRegistry : Registry {
+    tClass;
+
+    std::string get_regid() const override { return "minecraft:block"; }
+};
+
 struct Block : RegistryEntry {
     virtual ~Block() = default;
     virtual std::string vname() const { return get_dynamic_name(*this); }

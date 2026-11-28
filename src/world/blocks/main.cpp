@@ -1,5 +1,5 @@
 #include "main.hpp"
 
-struct BlockRegistry : Registry {
+struct BlockRegistryImpl : BlockRegistry {
     registryClass("minecraft:block");
-} REGISTRY(BlockRegistry);
+} REGISTRY(BlockRegistryImpl);

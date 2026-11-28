@@ -10,7 +10,7 @@
 #include <cstddef>
 #include <world/shared.hpp>
 
-const size_t* default_chunk_size = new size_t(32);
+const size_t* default_chunk_size = new size_t(64);
 
 namespace {
     inline bool is_power_of_two(size_t value) { return value > 0 && (value & (value - 1)) == 0; }

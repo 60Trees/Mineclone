@@ -32,25 +32,25 @@ namespace {
 
     // Ordered from continental/planetary macro-scales down to fine detail.
     const std::vector<Octave> octaves = {
-        {BigInt("100000000"), 5000000.0},  // Mega-continents / planetary curvature scale
-        {BigInt("10000000"), 800000.0},    // Massive mountain ranges
-        {BigInt("1000000"), 120000.0},     // Regional mountain chains
-        {BigInt("100000"), 20000.0},       // Valleys & ridges
-        {BigInt("15000"), 4000.0},         // Hills
-        {BigInt("1500"), 640.0},           // Local terrain variation
-        {BigInt("150"), 80.0},             // Boulders / rough ground
-        {BigInt("15"), 10.0}               // Micro detail
+        //{BigInt("10000000000"), 50000000.0},  // Mega-continents / planetary curvature scale
+        //{BigInt("1000000000"), 8000000.0},    // Massive mountain ranges
+        //{BigInt("100000000"), 1200000.0},     // Regional mountain chains
+        //{BigInt("10000000"), 200000.0},       // Valleys & ridges
+        //{BigInt("150000"), 4000.0},           // Hills
+        //{BigInt("15000"), 640.0},             // Local terrain variation
+        {BigInt("150"), 80.0},               // Boulders / rough ground
+        {BigInt("15"), 10.0}                 // Micro detail
     };
 
-    const std::array<FastOctave, 8> fast_octaves = {{
-        {100000000, 5000000.0},
-        {10000000, 800000.0},
-        {1000000, 120000.0},
-        {100000, 20000.0},
-        {15000, 4000.0},
-        {1500, 640.0},
-        {150, 80.0},
-        {15, 10.0},
+    const std::array<FastOctave, 2> fast_octaves = {{
+        //{10000000000, 50000000.0},  // Mega-continents / planetary curvature scale
+        //{1000000000, 8000000.0},    // Massive mountain ranges
+        //{100000000, 1200000.0},     // Regional mountain chains
+        //{10000000, 200000.0},       // Valleys & ridges
+        //{150000, 4000.0},           // Hills
+        //{15000, 640.0},             // Local terrain variation
+        {150, 80.0},               // Boulders / rough ground
+        {15, 10.0}                 // Micro detail
     }};
 
     /// Anything whose coordinate is exactly representable as an int64 can skip the
